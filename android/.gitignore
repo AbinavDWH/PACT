@@ -1,15 +1,75 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# =========================
+# Gradle
+# =========================
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# =========================
+# Local configuration
+# NEVER COMMIT THESE
+# =========================
 local.properties
+secrets.properties
+gradle.properties.local
+
+# =========================
+# Android Studio / IntelliJ
+# =========================
+.idea/
+*.iml
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# =========================
+# Android build outputs
+# =========================
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# =========================
+# Keystore / Signing
+# =========================
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# =========================
+# Secrets / API Keys
+# =========================
+api_keys.xml
+google-services.json
+*.env
+secrets.xml
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# Kotlin compiler
+# =========================
+*.kotlin_module
+
+# =========================
+# Lint
+# =========================
+lint/
+lint-results.*
