@@ -1,15 +1,19 @@
 package org.humanitarian.fieldapp.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -17,10 +21,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -51,16 +59,43 @@ import org.humanitarian.fieldapp.ui.theme.PactSurface
 import org.humanitarian.fieldapp.ui.theme.PactTextPrimary
 import org.humanitarian.fieldapp.ui.theme.PactTextSecondary
 
-private val locationCodes = listOf("RA", "RB", "RC", "D1", "D2")
-private val resourceCodes = listOf("F", "W", "M", "T", "B", "H", "D", "U")
-private val urgencyCodes = listOf("L", "M", "H", "C")
+private data class CodeOption(
+    val code: String,
+    val label: String
+)
+
+private val locationOptions = listOf(
+    CodeOption("RA", "Region A"),
+    CodeOption("RB", "Region B"),
+    CodeOption("RC", "Region C"),
+    CodeOption("D1", "District North"),
+    CodeOption("D2", "District South")
+)
+
+private val resourceOptions = listOf(
+    CodeOption("F", "Food kits"),
+    CodeOption("W", "Water kits"),
+    CodeOption("M", "Medical kits"),
+    CodeOption("T", "Tents"),
+    CodeOption("B", "Blankets"),
+    CodeOption("H", "Hygiene kits"),
+    CodeOption("D", "Medical teams"),
+    CodeOption("U", "Unknown")
+)
+
+private val urgencyOptions = listOf(
+    CodeOption("L", "Low"),
+    CodeOption("M", "Medium"),
+    CodeOption("H", "High"),
+    CodeOption("C", "Critical")
+)
 
 private fun submitReport(report: FieldReport): Boolean {
     return report.organizationId.isNotBlank() &&
-        report.locationCode in locationCodes &&
-        report.resourceCode in resourceCodes &&
+        locationOptions.any { it.code == report.locationCode } &&
+        resourceOptions.any { it.code == report.resourceCode } &&
         report.quantity > 0 &&
-        report.urgencyCode in urgencyCodes
+        urgencyOptions.any { it.code == report.urgencyCode }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -178,7 +213,7 @@ fun FieldReportScreen(
                             color = PactTextPrimary
                         )
                         Text(
-                            text = "Enter the minimum required field data. M3 submits this report to the backend API. M4 will add offline queue storage.",
+                            text = "Select location, resource, and urgency using predefined codes. M3 submits this report to the backend API. M4 will add offline queue storage.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = PactTextSecondary
                         )
@@ -195,26 +230,25 @@ fun FieldReportScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                OutlinedTextField(
-                    value = locationCode,
-                    onValueChange = { locationCode = it.uppercase() },
-                    label = { Text("Location Code") },
-                    supportingText = { Text("Allowed: RA, RB, RC, D1, D2") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
+                CodeDropdown(
+                    label = "Location",
+                    options = locationOptions,
+                    selectedCode = locationCode,
+                    onCodeSelected = { locationCode = it },
+                    supportingText = "Select a predefined location code."
                 )
 
-                OutlinedTextField(
-                    value = resourceCode,
-                    onValueChange = { resourceCode = it.uppercase() },
-                    label = { Text("Resource Code") },
-                    supportingText = {
-                        Text("F food, W water, M medical, T tents, B blankets, H hygiene, D medical teams, U unknown")
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
+                CodeDropdown(
+                    label = "Resource",
+                    options = resourceOptions,
+                    selectedCode = resourceCode,
+                    onCodeSelected = { resourceCode = it },
+                    supportingText = "Select a resource type code."
+                )
+
+                UrgencyRadioGroup(
+                    selectedCode = urgencyCode,
+                    onCodeSelected = { urgencyCode = it }
                 )
 
                 OutlinedTextField(
@@ -233,16 +267,6 @@ fun FieldReportScreen(
                 )
 
                 OutlinedTextField(
-                    value = urgencyCode,
-                    onValueChange = { urgencyCode = it.uppercase() },
-                    label = { Text("Urgency Code") },
-                    supportingText = { Text("L low, M medium, H high, C critical") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
                     label = { Text("Notes, optional") },
@@ -254,7 +278,7 @@ fun FieldReportScreen(
 
                 if (showError) {
                     Text(
-                        text = "Please fill all required fields with valid codes and a positive quantity.",
+                        text = "Please fill all required fields with valid selections and a positive quantity.",
                         color = PactPrimary,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
@@ -291,6 +315,131 @@ fun FieldReportScreen(
                         text = "Submit Field Report",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodeDropdown(
+    label: String,
+    options: List<CodeOption>,
+    selectedCode: String,
+    onCodeSelected: (String) -> Unit,
+    supportingText: String
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    val selectedOption = options.firstOrNull { it.code == selectedCode }
+
+    val displayValue = selectedOption?.let {
+        "${it.code} - ${it.label}"
+    } ?: "Select"
+
+    Box(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = PactBackground,
+                border = BorderStroke(1.dp, PactAccent)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = PactTextSecondary
+                    )
+
+                    Text(
+                        text = displayValue,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = PactTextPrimary
+                    )
+
+                    Text(
+                        text = supportingText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PactTextSecondary
+                    )
+                }
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text("${option.code} - ${option.label}")
+                    },
+                    onClick = {
+                        onCodeSelected(option.code)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UrgencyRadioGroup(
+    selectedCode: String,
+    onCodeSelected: (String) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = PactSurface,
+        border = BorderStroke(1.dp, PactAccent)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Urgency",
+                style = MaterialTheme.typography.labelLarge,
+                color = PactTextSecondary
+            )
+
+            urgencyOptions.forEach { option ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedCode == option.code,
+                        onClick = {
+                            onCodeSelected(option.code)
+                        },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = PactPrimary,
+                            unselectedColor = PactTextSecondary
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = "${option.label} (${option.code})",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = PactTextPrimary
                     )
                 }
             }
