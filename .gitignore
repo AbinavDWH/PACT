@@ -115,7 +115,7 @@ desktop.ini
 # =========================
 !docs/
 !docs/*.md
-*.md
+!*.md
 
 # =========================
 # Large offline map assets
