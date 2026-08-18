@@ -4,16 +4,19 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -28,13 +31,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import org.humanitarian.fieldapp.models.FieldReport
+import org.humanitarian.fieldapp.network.ApiClient
+import org.humanitarian.fieldapp.network.ApiResult
 import org.humanitarian.fieldapp.ui.theme.PactAccent
 import org.humanitarian.fieldapp.ui.theme.PactBackground
 import org.humanitarian.fieldapp.ui.theme.PactOnPrimary
@@ -70,6 +78,31 @@ fun FieldReportScreen(
 
     var submittedReport by remember { mutableStateOf<FieldReport?>(null) }
     var showError by rememberSaveable { mutableStateOf(false) }
+    var submissionState by remember { mutableStateOf("idle") }
+    var apiMessage by remember { mutableStateOf("") }
+
+    val coroutineScope = rememberCoroutineScope()
+
+    val sendReport: (FieldReport) -> Unit = { report ->
+        submittedReport = report
+        showError = false
+        submissionState = "submitting"
+        apiMessage = ""
+
+        coroutineScope.launch {
+            when (val result = ApiClient.postNeed(report)) {
+                is ApiResult.Success -> {
+                    submissionState = "success"
+                    apiMessage = "Online submission successful."
+                }
+
+                is ApiResult.Error -> {
+                    submissionState = "error"
+                    apiMessage = result.message
+                }
+            }
+        }
+    }
 
     Scaffold(
         containerColor = PactBackground,
@@ -106,11 +139,18 @@ fun FieldReportScreen(
             FieldReportSubmittedContent(
                 padding = padding,
                 report = report,
+                submissionState = submissionState,
+                apiMessage = apiMessage,
                 onCreateAnother = {
                     submittedReport = null
                     showError = false
+                    submissionState = "idle"
+                    apiMessage = ""
                 },
-                onReturnHome = onReturnHome
+                onReturnHome = onReturnHome,
+                onRetry = {
+                    sendReport(report)
+                }
             )
         } else {
             Column(
@@ -138,7 +178,7 @@ fun FieldReportScreen(
                             color = PactTextPrimary
                         )
                         Text(
-                            text = "Enter the minimum required field data. This form will later support online submission, offline queueing, and SMS fallback.",
+                            text = "Enter the minimum required field data. M3 submits this report to the backend API. M4 will add offline queue storage.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = PactTextSecondary
                         )
@@ -233,8 +273,7 @@ fun FieldReportScreen(
                         )
 
                         if (submitReport(reportCandidate)) {
-                            submittedReport = reportCandidate
-                            showError = false
+                            sendReport(reportCandidate)
                         } else {
                             showError = true
                         }
@@ -263,9 +302,14 @@ fun FieldReportScreen(
 private fun FieldReportSubmittedContent(
     padding: PaddingValues,
     report: FieldReport,
+    submissionState: String,
+    apiMessage: String,
     onCreateAnother: () -> Unit,
-    onReturnHome: () -> Unit
+    onReturnHome: () -> Unit,
+    onRetry: () -> Unit
 ) {
+    val isSubmitting = submissionState == "submitting"
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -322,17 +366,84 @@ private fun FieldReportSubmittedContent(
                         value = report.notes
                     )
                 }
+            }
+        }
 
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = PactSurface,
+            border = BorderStroke(1.dp, PactAccent)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Text(
-                    text = "Next module will convert this into an online API request or an SMS fallback payload.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = PactTextSecondary
+                    text = "Submission Status",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = PactTextPrimary
+                )
+
+                if (isSubmitting) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = PactPrimary,
+                            strokeWidth = 3.dp
+                        )
+                        Text(
+                            text = "Sending report to backend.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PactTextSecondary
+                        )
+                    }
+                } else {
+                    Text(
+                        text = apiMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PactTextSecondary
+                    )
+                }
+
+                if (submissionState == "error") {
+                    Text(
+                        text = "M4 will add offline queue storage so failed reports can be saved locally and retried.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PactTextSecondary
+                    )
+                }
+            }
+        }
+
+        if (submissionState == "error") {
+            Button(
+                onClick = onRetry,
+                enabled = !isSubmitting,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PactPrimary,
+                    contentColor = PactOnPrimary
+                )
+            ) {
+                Text(
+                    text = "Try Again",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
 
         Button(
             onClick = onCreateAnother,
+            enabled = !isSubmitting,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -351,6 +462,7 @@ private fun FieldReportSubmittedContent(
 
         OutlinedButton(
             onClick = onReturnHome,
+            enabled = !isSubmitting,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
