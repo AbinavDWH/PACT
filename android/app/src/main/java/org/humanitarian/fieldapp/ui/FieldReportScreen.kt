@@ -1,20 +1,16 @@
 package org.humanitarian.fieldapp.ui
 
-import androidx.compose.ui.platform.LocalContext
-import org.humanitarian.fieldapp.offline.OfflineQueue
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,12 +18,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -46,6 +40,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -53,6 +48,8 @@ import kotlinx.coroutines.launch
 import org.humanitarian.fieldapp.models.FieldReport
 import org.humanitarian.fieldapp.network.ApiClient
 import org.humanitarian.fieldapp.network.ApiResult
+import org.humanitarian.fieldapp.offline.OfflineQueue
+import org.humanitarian.fieldapp.sms.SmsEncoder
 import org.humanitarian.fieldapp.ui.theme.PactAccent
 import org.humanitarian.fieldapp.ui.theme.PactBackground
 import org.humanitarian.fieldapp.ui.theme.PactOnPrimary
@@ -100,7 +97,8 @@ private fun submitReport(report: FieldReport): Boolean {
         urgencyOptions.any { it.code == report.urgencyCode }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun FieldReportScreen(
     onBack: () -> Unit,
     onReturnHome: () -> Unit
@@ -116,6 +114,7 @@ fun FieldReportScreen(
     var showError by rememberSaveable { mutableStateOf(false) }
     var submissionState by remember { mutableStateOf("idle") }
     var apiMessage by remember { mutableStateOf("") }
+    var smsPayload by remember { mutableStateOf("") }
 
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -131,11 +130,22 @@ fun FieldReportScreen(
                 is ApiResult.Success -> {
                     submissionState = "success"
                     apiMessage = "Online submission successful."
+                    smsPayload = ""
                 }
 
                 is ApiResult.Error -> {
-                    // M4: Save to offline queue if API fails
                     OfflineQueue.addReport(context, report)
+
+                    val seq = SmsEncoder.nextSequence(
+                        context = context,
+                        organizationId = report.organizationId
+                    )
+
+                    smsPayload = SmsEncoder.encodeNeed(
+                        report = report,
+                        seq = seq
+                    )
+
                     submissionState = "queued"
                     apiMessage = "Internet unavailable. Report saved to offline queue."
                 }
@@ -180,11 +190,13 @@ fun FieldReportScreen(
                 report = report,
                 submissionState = submissionState,
                 apiMessage = apiMessage,
+                smsPayload = smsPayload,
                 onCreateAnother = {
                     submittedReport = null
                     showError = false
                     submissionState = "idle"
                     apiMessage = ""
+                    smsPayload = ""
                 },
                 onReturnHome = onReturnHome
             )
@@ -213,6 +225,7 @@ fun FieldReportScreen(
                             fontWeight = FontWeight.SemiBold,
                             color = PactTextPrimary
                         )
+
                         Text(
                             text = "Select location, resource, and urgency using predefined codes. If internet is unavailable, the report is automatically saved to the offline queue.",
                             style = MaterialTheme.typography.bodyMedium,
@@ -445,169 +458,5 @@ private fun UrgencyRadioGroup(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun FieldReportSubmittedContent(
-    padding: PaddingValues,
-    report: FieldReport,
-    submissionState: String,
-    apiMessage: String,
-    onCreateAnother: () -> Unit,
-    onReturnHome: () -> Unit
-) {
-    val isSubmitting = submissionState == "submitting"
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding)
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            color = PactSurface,
-            border = BorderStroke(1.dp, PactAccent)
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "Report Prepared",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = PactTextPrimary
-                )
-
-                ReportSummaryRow(label = "Organization", value = report.organizationId)
-                ReportSummaryRow(label = "Location", value = report.locationCode)
-                ReportSummaryRow(label = "Resource", value = report.resourceCode)
-                ReportSummaryRow(label = "Quantity", value = report.quantity.toString())
-                ReportSummaryRow(label = "Urgency", value = report.urgencyCode)
-
-                if (report.notes.isNotBlank()) {
-                    ReportSummaryRow(label = "Notes", value = report.notes)
-                }
-            }
-        }
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            color = PactSurface,
-            border = BorderStroke(1.dp, PactAccent)
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "Submission Status",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = PactTextPrimary
-                )
-
-                if (isSubmitting) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = PactPrimary,
-                            strokeWidth = 3.dp
-                        )
-                        Text(
-                            text = "Sending report to backend.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = PactTextSecondary
-                        )
-                    }
-                } else if (submissionState == "queued") {
-                    Text(
-                        text = apiMessage,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = PactPrimary
-                    )
-                    Text(
-                        text = "This report is safely stored on your device. M5 will convert it to an SMS payload, and M10 will sync it when internet returns.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = PactTextSecondary
-                    )
-                } else {
-                    Text(
-                        text = apiMessage,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = PactTextSecondary
-                    )
-                }
-            }
-        }
-
-        Button(
-            onClick = onCreateAnother,
-            enabled = !isSubmitting,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = PactPrimary,
-                contentColor = PactOnPrimary
-            )
-        ) {
-            Text(
-                text = "Create Another Report",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-
-        OutlinedButton(
-            onClick = onReturnHome,
-            enabled = !isSubmitting,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, PactAccent),
-            colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = PactBackground,
-                contentColor = PactTextPrimary
-            )
-        ) {
-            Text(
-                text = "Return to Home",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
-}
-
-@Composable
-private fun ReportSummaryRow(
-    label: String,
-    value: String
-) {
-    Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            color = PactTextSecondary
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-            color = PactTextPrimary
-        )
     }
 }
