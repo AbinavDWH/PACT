@@ -1,5 +1,7 @@
 package org.humanitarian.fieldapp.ui
 
+import androidx.compose.ui.platform.LocalContext
+import org.humanitarian.fieldapp.offline.OfflineQueue
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -117,6 +119,7 @@ fun FieldReportScreen(
     var apiMessage by remember { mutableStateOf("") }
 
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val sendReport: (FieldReport) -> Unit = { report ->
         submittedReport = report
@@ -132,8 +135,10 @@ fun FieldReportScreen(
                 }
 
                 is ApiResult.Error -> {
-                    submissionState = "error"
-                    apiMessage = result.message
+                    // M4: Save to offline queue if API fails
+                    OfflineQueue.addReport(context, report)
+                    submissionState = "queued"
+                    apiMessage = "Internet unavailable. Report saved to offline queue."
                 }
             }
         }
@@ -182,10 +187,7 @@ fun FieldReportScreen(
                     submissionState = "idle"
                     apiMessage = ""
                 },
-                onReturnHome = onReturnHome,
-                onRetry = {
-                    sendReport(report)
-                }
+                onReturnHome = onReturnHome
             )
         } else {
             Column(
@@ -213,7 +215,7 @@ fun FieldReportScreen(
                             color = PactTextPrimary
                         )
                         Text(
-                            text = "Select location, resource, and urgency using predefined codes. M3 submits this report to the backend API. M4 will add offline queue storage.",
+                            text = "Select location, resource, and urgency using predefined codes. If internet is unavailable, the report is automatically saved to the offline queue.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = PactTextSecondary
                         )
@@ -454,8 +456,7 @@ private fun FieldReportSubmittedContent(
     submissionState: String,
     apiMessage: String,
     onCreateAnother: () -> Unit,
-    onReturnHome: () -> Unit,
-    onRetry: () -> Unit
+    onReturnHome: () -> Unit
 ) {
     val isSubmitting = submissionState == "submitting"
 
@@ -484,36 +485,14 @@ private fun FieldReportSubmittedContent(
                     color = PactTextPrimary
                 )
 
-                ReportSummaryRow(
-                    label = "Organization",
-                    value = report.organizationId
-                )
-
-                ReportSummaryRow(
-                    label = "Location",
-                    value = report.locationCode
-                )
-
-                ReportSummaryRow(
-                    label = "Resource",
-                    value = report.resourceCode
-                )
-
-                ReportSummaryRow(
-                    label = "Quantity",
-                    value = report.quantity.toString()
-                )
-
-                ReportSummaryRow(
-                    label = "Urgency",
-                    value = report.urgencyCode
-                )
+                ReportSummaryRow(label = "Organization", value = report.organizationId)
+                ReportSummaryRow(label = "Location", value = report.locationCode)
+                ReportSummaryRow(label = "Resource", value = report.resourceCode)
+                ReportSummaryRow(label = "Quantity", value = report.quantity.toString())
+                ReportSummaryRow(label = "Urgency", value = report.urgencyCode)
 
                 if (report.notes.isNotBlank()) {
-                    ReportSummaryRow(
-                        label = "Notes",
-                        value = report.notes
-                    )
+                    ReportSummaryRow(label = "Notes", value = report.notes)
                 }
             }
         }
@@ -551,6 +530,18 @@ private fun FieldReportSubmittedContent(
                             color = PactTextSecondary
                         )
                     }
+                } else if (submissionState == "queued") {
+                    Text(
+                        text = apiMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = PactPrimary
+                    )
+                    Text(
+                        text = "This report is safely stored on your device. M5 will convert it to an SMS payload, and M10 will sync it when internet returns.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PactTextSecondary
+                    )
                 } else {
                     Text(
                         text = apiMessage,
@@ -558,35 +549,6 @@ private fun FieldReportSubmittedContent(
                         color = PactTextSecondary
                     )
                 }
-
-                if (submissionState == "error") {
-                    Text(
-                        text = "M4 will add offline queue storage so failed reports can be saved locally and retried.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = PactTextSecondary
-                    )
-                }
-            }
-        }
-
-        if (submissionState == "error") {
-            Button(
-                onClick = onRetry,
-                enabled = !isSubmitting,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = PactPrimary,
-                    contentColor = PactOnPrimary
-                )
-            ) {
-                Text(
-                    text = "Try Again",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
             }
         }
 
