@@ -100,8 +100,7 @@ private fun submitReport(report: FieldReport): Boolean {
         urgencyOptions.any { it.code == report.urgencyCode }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
+@OptIn(ExperimentalMaterial3Api::class)@Composable
 fun FieldReportScreen(
     onBack: () -> Unit,
     onReturnHome: () -> Unit
