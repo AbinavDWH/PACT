@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import org.humanitarian.fieldapp.ui.FieldReportScreen
 import org.humanitarian.fieldapp.ui.HomeScreen
 import org.humanitarian.fieldapp.ui.PlaceholderScreen
 import org.humanitarian.fieldapp.ui.theme.PactTheme
@@ -41,10 +42,11 @@ class MainActivity : ComponentActivity() {
                     }
 
                     "field_report" -> {
-                        PlaceholderScreen(
-                            title = "Field Report",
-                            description = "Structured incident reporting with offline queue support.",
+                        FieldReportScreen(
                             onBack = {
+                                currentScreen = "home"
+                            },
+                            onReturnHome = {
                                 currentScreen = "home"
                             }
                         )
