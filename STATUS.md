@@ -1,221 +1,359 @@
-# PACT — Current Development Status (Working Document)
+# ResiLink - Project Status
 
-Repository: https://github.com/AbinavDWH/PACT
-Current branch: testabi8
-Owner: Me (Android + coordination)
-Last updated: August 19, 2026 — evening session (Request Hub build)
-
-Purpose:
-Every new AI session must read this file first.
-This file represents the current truth of the project.
-Do not assume missing modules are done unless listed under Completed Modules.
+Project: Privacy-Preserving Multi-Agent Humanitarian Coordination Platform  
+Hackathon: Phoenix Hacks - Track 6  
+Repo: https://github.com/AbinavDWH/PACT  
+Branch: testabi8  
+Last Updated: August 19, 2026  
+Overall MVP Progress: Android MVP COMPLETE — all modules M0 to M10 implemented. M0-M5 verified on GitHub. M6-M10 implemented locally and pending final push/verification. After push, move to integration test + demo prep.
 
 ---
 
-## Overview
+## Repo Verification Summary
 
-| Area | Status | Owner | Notes |
-|---|---|---|---|
-| Android app | MVP Complete (M0–M10) | Me | Code-complete; still needs push + verification |
-| Backend API (FastAPI) | In Progress | Teammate + me | health, needs, SMS webhook, Request Hub endpoints live |
-| Redis + agent workers | Deferred | Teammate | In-memory simulated agent bus for now; clean swap point exists |
-| Web dashboard | In Progress | Teammate + me | Phase 1 Request Hub page live and verified |
+Before doing any work, follow:
+`REPO_CHECK.md`
 
----
+Required local checks:
+` ` `bash
+git fetch --all --prune
+git branch --show-current
+git status --short
+git log --oneline --date=short -5
+` ` `
 
-## Session start documents (read in this order)
+Required GitHub checks:
+` ` `text
+https://github.com/AbinavDWH/PACT
+https://github.com/AbinavDWH/PACT/commits/testabi8
+https://github.com/AbinavDWH/PACT/blob/testabi8/STATUS.md
+https://github.com/AbinavDWH/PACT/tree/testabi8/android/app/src/main
+` ` `
 
-1. `AI_CONTEXT_LOADER.md`
-2. `REPO_CHECK.md`
-3. `STATUS.md`
-4. `SWE_RULES.md`
-5. `sms.md` (if touching SMS protocol)
-6. `web_plan.md` (if touching web)
-7. `memory_draft.md` (background + demo strategy)
+Required Android package detection:
+` ` `bash
+NAMESPACE=$(grep -E "namespace" android/app/build.gradle.kts | sed -E 's/.*"(.+)".*/\1/')
+PKG_DIR=android/app/src/main/java/$(echo $NAMESPACE | tr '.' '/')
+echo "NAMESPACE=$NAMESPACE"
+echo "PKG_DIR=$PKG_DIR"
+` ` `
+
+Known package:
+`org.humanitarian.fieldapp`
+
+Known Android source path:
+`android/app/src/main/java/org/humanitarian/fieldapp/`
 
 ---
 
 ## Current Work Split
 
-### Me — Android App (MVP complete, pending push/verify)
-
-Modules:
-1. App shell, architecture, theme, navigation
-2. Auth + Organization setup
-3. Crisis creation / selection
-4. Dashboard
-5. My Requests + Create Request
-6. Offline-first storage, sync, conflict rules
-7. SMS fallback: encoder/decoder, XOR checksum, simulator
-8. Map: offline marker storage, crisis marker rendering, sync
-9. Field Report with image + offline queue + status
-10. Settings, sync center, diagnostics
-
-Current status:
-All M0–M10 code-complete (see Android progress list below). Push + verify still pending.
-
-### Teammate — Backend API + Redis + Agents
-
-Backend (FastAPI):
-- [x] GET /api/v1/health
-- [x] POST /api/v1/needs
-- [x] POST /api/v1/sms/webhook — decodes legacy + canonical N; R and S added Aug 19
-- [x] Request Hub endpoints — built + verified Aug 19 evening (section below)
-
-Redis + agent pipeline:
-- [ ] Connect Redis — deferred by decision; in-memory simulation used instead
-- [ ] need_assessment_queue
-- [ ] resource_matching_queue
-- [ ] coordination_queue
-
-Integration contract:
-- `/api/v1/needs` must stay live; Android offline-to-online demo depends on it
-- `/api/v1/sms/webhook` should return decoded JSON matching sms.md section 27
-
-### Web Dashboard
-
-See Web Dashboard Progress below.
+| Area | Owner | Status | Specific Focus |
+| --- | --- | --- | --- |
+| Android App | Me | MVP Complete | M0-M10 implemented. Push + verify M6-M10. Run offline-to-online demo. |
+| Backend API + Redis + Agents | Teammate | In Progress | Connect FastAPI to Redis and trigger Need Assessment Agent. |
+| Web Dashboard | Teammate | Pending | Dashboard panels, SMS simulator, map panel. |
+| Database / PostGIS | Teammate | In Progress | Schema and spatial queries. |
+| SMS Protocol | Shared / Backend | Done | Canonical and legacy parsing, XOR checksum implemented. |
 
 ---
 
-## Backend Request Hub — DONE (Aug 19 evening session)
+## Completed Android Modules
 
-Single-file `backend/app/main.py` (additive — `/needs`, `/sms/webhook` response shapes only gained fields; Android unaffected). No Redis: in-memory store + simulated agent bus with a clean swap point.
+| Module | Name | Status | Notes |
+| --- | --- | --- | --- |
+| M0 | Repo + Hello World verification | Done | Android project exists and builds. Repo docs added. |
+| M1 | App shell + home navigation | Done | Home screen with navigation buttons. Clean UI theme added. |
+| M2 | Field report form | Done | Need report entry using dropdowns and radio buttons. |
+| M3 | Online API submission | Done | Field report POSTs to FastAPI via `ApiClient.kt`. |
+| M4 | Offline queue storage | Done | Failed submissions saved locally via `OfflineQueue.kt`. Verified on GitHub. |
+| M5 | SMS encoder fallback | Done | Failed reports convert to canonical SMS payload. Verified on GitHub. |
+| M6 | SMS fallback screen | Implemented locally | `SmsFallbackScreen.kt` shows/copies queued payloads. Queue stores `smsPayload`. Needs push/verify. |
+| M7 | SMS decoder demo | Implemented locally | `SmsDecoder.kt` + `SmsDecoderScreen.kt` decode SMS into human-readable message + JSON. Needs push/verify. |
+| M8 | Offline map marker demo | Implemented locally | `OfflineMapScreen.kt` + `MapMarker.kt` plot SMS marker on cached tactical map. Needs push/verify. |
+| M9 | Delivery status update | Implemented locally | `StatusSmsBuilder.kt` + `StatusUpdateScreen.kt` generate canonical status SMS. Needs push/verify. |
+| M10 | Sync worker + demo polish | Implemented locally | `SyncManager.kt` syncs queue when internet returns. Auto-sync on home + Sync Now button. Needs push/verify. |
 
-Endpoints (all verified live):
-- [x] GET /api/v1/requests?status=&type=&source=
-- [x] POST /api/v1/requests (generic: need | resource | status)
-- [x] POST /api/v1/requests/{id}/accept — validate then route to queue
-- [x] POST /api/v1/requests/{id}/reject — body: { reason }
-- [x] GET /api/v1/plans
-- [x] GET /api/v1/agent-activity
-- [x] GET/POST /api/v1/config/auto-accept (demo insurance toggle)
-
-Behavior:
-- Accept validation order: XOR checksum -> duplicate (org+seq) -> privacy filter (sms.md sections 26, 31)
-- Accept triggers simulated pipeline: processing -> matched -> allocated, generating a plan
-  (greedy allocation from seeded org inventories, fastest ETA first)
-- All three sources flow into one hub: web form, SMS webhook, Android sync (via /needs)
-- Seed data: 3 orgs (NGO01/CSR02/GOV03), 5 pending requests (mixed sources), 1 delivered plan
-- Server restart resets state to seed — use this as the demo reset button
-
-Verified: curl smoke tests all passed (accept -> pipeline -> PLAN-101; duplicate guard 409;
-legacy R webhook -> REQ-006; /needs android -> REQ-007).
-
-Deliberately not built: persistence (PostgreSQL), real Redis, auth.
+Hackathon MVP minimum (M0-M6): ACHIEVED
+Stretch modules (M7-M10): ACHIEVED
 
 ---
 
-## Web Dashboard Progress (W modules)
+## Specific DO THIS NOW
 
-Stack: Next.js App Router + Tailwind in `web/` (re-scaffolded with create-next-app Aug 19).
-Backend URL: http://localhost:8000 (override with NEXT_PUBLIC_API_URL in web/.env.local).
+Current Active Task:
+Push and verify M6-M10, then run the full offline-to-online demo.
 
-- [x] W1 — Request Hub page `/requests`: table, tabs (All/Pending/Accepted/Rejected),
-      Accept/Reject, source/urgency/status badges, canonical SMS preview under each ID,
-      3s polling, agent activity feed panel, unreachable-backend banner — VERIFIED rendering
-- [ ] W2 — New Request `/requests/new`: Need | Resource | Status selector, dropdowns mapped
-      to sms.md codes, LIVE canonical SMS preview (P1 — next task)
-- [ ] W3 — Plans panel `/plans`: plan list + allocations table (backend data already exists) (P2)
-- [ ] W4 — SMS simulator `/sms-simulator`: payload textarea -> POST /sms/webhook -> decoded JSON (P2)
-- [ ] W5 — Dashboard overview `/`, FilterBar, privacy panel `/privacy` (P3 / optional)
+All Android code is written. Do not add new features until M6-M10 are verified on GitHub and the end-to-end offline demo works against the teammate's backend.
 
----
+### M6-M10 Verification Checklist
 
-## Integration Dependencies
+Check branch:
+` ` `bash
+git checkout testabi8
+git pull origin testabi8
+` ` `
 
-| Depends on | Direction | What is needed | Status |
-|---|---|---|---|
-| Android -> backend | POST /api/v1/needs | Must stay live for offline-to-online sync | LIVE, verified Aug 19 |
-| Web hub -> backend | /api/v1/requests, accept, reject, plans, agent-activity | Request Hub endpoints | LIVE, verified Aug 19 |
-| Web form -> backend | POST /api/v1/requests | Generic request creation | Endpoint ready; form pending (W2) |
-| Backend -> Redis | Agent queues | Deferred; swap point = publish_to_agent_bus in main.py | Deferred |
-| Web -> Android | None | Web only consumes backend | OK |
+Check new M6-M10 files exist:
+` ` `bash
+find android/app/src/main -type f -name "SmsFallbackScreen.kt"
+find android/app/src/main -type f -name "SmsDecoder.kt"
+find android/app/src/main -type f -name "SmsDecoderScreen.kt"
+find android/app/src/main -type f -name "OfflineMapScreen.kt"
+find android/app/src/main -type f -name "MapMarker.kt"
+find android/app/src/main -type f -name "StatusSmsBuilder.kt"
+find android/app/src/main -type f -name "StatusUpdateScreen.kt"
+find android/app/src/main -type f -name "SyncManager.kt"
+` ` `
 
----
+Check required functions:
+` ` `bash
+grep -R "fun decode" -n android/app/src/main
+grep -R "fun encodeStatus" -n android/app/src/main
+grep -R "fun syncQueue" -n android/app/src/main
+grep -R "fun replaceQueue" -n android/app/src/main
+grep -R "SmsFallbackScreen" -n android/app/src/main
+grep -R "SmsDecoderScreen" -n android/app/src/main
+grep -R "OfflineMapScreen" -n android/app/src/main
+grep -R "StatusUpdateScreen" -n android/app/src/main
+` ` `
+Expected: at least one match for each.
 
-## Android App Progress (M modules)
+Build Android app:
+` ` `bash
+cd android
+./gradlew clean
+./gradlew :app:assembleDebug
+cd ..
+` ` `
+Expected: `BUILD SUCCESSFUL`
 
-- [x] M0 — App shell: Gradle, theme, navigation, screen skeletons, README, .gitignore
-- [x] M1 — Architecture: Result wrapper, ApiException, ApiClient, SyncWorker stub, SyncEngine stub, ConnectivityMonitor
-- [x] M2 — Auth + Organization setup: AuthRepository, mock login, OrganizationRepository, OrgProfile
-- [x] M3 — Crisis: CrisisRepository, Crisis, CreateCrisal, SelectCrisis, active_crisis.json local fallback (Firebase optional for demo)
-- [x] M4 — Dashboard: Dashboard, DashboardItem, stats
-- [x] M5 — Requests: Request, RequestForm, RequestList, RequestDetail, RequestMapper
-- [x] M6 — Offline-first: local DB, pending_operations, SyncQueue, SyncEngine, ConflictResolver, SyncRepository
-- [x] M7 — SMS fallback: SmsCodes, Checksum, SmsMessageBuilder, SmsMessageParser, SmsSimulator
-- [x] M8 — Map: MapMarker, OfflineMarkerStore, CrisisMap, marker sync
-- [x] M9 — Field Report: FieldReportForm, image handling, offline report queue, report status
-- [x] M10 — Settings: Sync Center, Diagnostics, full sync button, clear local data, README update
+Commit and push:
+` ` `bash
+git add android/app/src/main/java/org/humanitarian/fieldapp/
+git commit -m "feat(android): complete M6-M10 (fallback screen, decoder, map, status, sync)"
+git push origin testabi8
+` ` `
 
-Android status: MVP code-complete locally. Push + verification still pending.
+Verify on GitHub:
+` ` `text
+https://github.com/AbinavDWH/PACT/tree/testabi8/android/app/src/main/java/org/humanitarian/fieldapp
+` ` `
 
----
+### End-to-End Offline-to-Online Demo Test (the money demo)
 
-## Next Actions (ordered)
+1. Enable Airplane mode.
+2. Open Field Report, submit a valid report. Expect: "saved to offline queue."
+3. Go Home. Expect banner: "1 report(s) in offline queue."
+4. Open SMS Fallback. Expect: canonical payload visible + Copy works.
+5. Disable Airplane mode (backend must be running).
+6. Go Home. Expect: auto-sync runs, banner clears, message "1 queued report(s) synced automatically."
+7. Open SMS Fallback. Expect: "No pending reports."
 
-1. Web W2: `/requests/new` form + live SMS preview (immediate next)
-2. Web W3: `/plans` panel (small — GET /api/v1/plans already exists)
-3. Web W4: SMS simulator (unlocks demo step 8 for judges)
-4. Android: push + verify M6–M10 (still pending!)
-5. Android: run offline-to-online demo against live /api/v1/needs (dependency now satisfied)
-6. Commit + push: backend/app/main.py, web/ (after .gitignore fix), updated docs
-7. Later: Redis swap, Postgres persistence, Docker compose, Firebase, real map layer
-
----
-
-## Completed Modules (Current Truth)
-
-M0, M1, M2, M3 (demo mode), M4, M5, M6, M7, M8, M9, M10
-Backend Request Hub (endpoints + validation + simulated agent bus)
-Web W1 — Request Hub page
-
----
-
-## Remaining Work After MVP
-
-- Web W2–W5
-- Real Redis workers replacing the in-memory simulation
-- PostgreSQL persistence for requests/plans/organizations
-- Android M6–M10 push + verification
-- End-to-end offline-to-online verification
-- Docker compose (optional)
-- Firebase (optional)
-- Real map layer (optional)
-- Teammate API contract verification against sms.md
+If step 6 fails, confirm teammate's FastAPI `/api/v1/needs` endpoint is reachable and `usesCleartextTraffic="true"` is set.
 
 ---
 
-## Demo Readiness (mapped to memory_draft.md demo script)
+## Android Module Execution Plan
 
-| Demo step | Status |
-|---|---|
-| 2. Crisis/need input | Pending W2 form (curl works meanwhile) |
-| 3–6. Live agent pipeline on Accept | READY (agent feed on /requests) |
-| 4. Show allocation plans | Data ready; panel pending W3 |
-| 7. Privacy | READY (auto-reject PRIVACY / BAD_CRC / DUP on accept) |
-| 8. SMS fallback | Backend decodes legacy+canonical N/R/S; simulator pending W4 |
-| 9. Offline map (Android) | Code complete; pending push/verify |
-| 10. Dynamic replanning | Talking point only |
-
----
-
-## Hard Boundaries (Do Not Cross)
-
-Do not use Firebase Auth
-Do not use Google Maps
-Do not use PostgreSQL for M6 offline storage
-Do not use WorkManager as the primary sync engine
-Do not use DataStore as the primary offline database
-Do not create production billing logic
-Do not create real SMS gateway integration
+| Module | Name | Priority | Status | Done Criteria |
+| --- | --- | --- | --- | --- |
+| M0 | Repo + Hello World verification | Mandatory | Done | App builds and runs. Repo verified. |
+| M1 | App shell + home navigation | Mandatory | Done | Home screen with buttons exists. |
+| M2 | Field report form | Mandatory | Done | User can enter need report. |
+| M3 | Online API submission | Mandatory | Done | Report can POST to FastAPI backend. |
+| M4 | Offline queue storage | Mandatory | Done | Failed report is stored locally. |
+| M5 | SMS encoder fallback | Mandatory | Done | Report becomes canonical SMS payload. |
+| M6 | SMS fallback screen | Mandatory | Implemented | SMS payload can be viewed and copied. |
+| M7 | SMS decoder demo | High | Implemented | Pasted SMS decodes to readable message. |
+| M8 | Offline map marker demo | High / Optional | Implemented | SMS marker updates map. |
+| M9 | Delivery status update | Medium | Implemented | Status SMS can be generated. |
+| M10 | Sync worker + demo polish | High | Implemented | Offline queue syncs when internet returns. |
 
 ---
 
-## Known Risks / Notes
+## Current Android File State
 
-- Backend state is in-memory: restart = reset to seed (demo reset button; hackathon-acceptable)
-- Android should send source="android" in /needs body for correct hub badge — verify during M10 check
-- Legacy R SMS carries no location; backend defaults to RA (commented)
-- web/.env.local is gitignored; default API URL (localhost:8000) works without it
-- Checksums are computed dynamically — do not hardcode expected values from sms.md examples
+Expected files (all implemented this session):
+` ` `text
+android/app/src/main/java/org/humanitarian/fieldapp/
+ ├── MainActivity.kt
+ ├── models/
+ │   ├── FieldReport.kt
+ │   └── MapMarker.kt
+ ├── network/
+ │   └── ApiClient.kt
+ ├── offline/
+ │   └── OfflineQueue.kt
+ ├── sms/
+ │   ├── Checksum.kt
+ │   ├── SmsCodes.kt
+ │   ├── SmsEncoder.kt
+ │   ├── SmsDecoder.kt
+ │   └── StatusSmsBuilder.kt
+ ├── sync/
+ │   └── SyncManager.kt
+ └── ui/
+     ├── FieldReportScreen.kt
+     ├── FieldReportSubmittedContent.kt
+     ├── HomeScreen.kt
+     ├── PlaceholderScreen.kt
+     ├── SmsFallbackScreen.kt
+     ├── SmsDecoderScreen.kt
+     ├── OfflineMapScreen.kt
+     ├── StatusUpdateScreen.kt
+     └── theme/
+         ├── Color.kt
+         └── Theme.kt
+` ` `
+
+Expected manifest permission:
+` ` `xml
+<uses-permission android:name="android.permission.INTERNET" />
+` ` `
+
+Expected local HTTP support for backend testing:
+` ` `xml
+android:usesCleartextTraffic="true"
+` ` `
+
+---
+
+## UI and UX Rules
+
+Use clean UI only.
+Do not use emojis in the app UI.
+Use this palette:
+- Background: rgb(255, 250, 243)
+- Surface: rgb(255, 242, 219)
+- Accent: rgb(255, 229, 191)
+- Primary action: rgb(246, 36, 64)
+
+Compose color values:
+` ` `kotlin
+val PactBackground = Color(0xFFFFFAF3)
+val PactSurface = Color(0xFFFFF2DB)
+val PactAccent = Color(0xFFFFE5BF)
+val PactPrimary = Color(0xFFF62440)
+` ` `
+
+---
+
+## Required SMS Behavior
+
+Follow: `sms.md`
+
+Canonical need SMS format:
+`N|SEQ|ORG|LOC|RESOURCE|QTY|URGENCY|CRC`
+Example: `N|001|NGO01|RA|F|300|H|B3`
+
+Canonical marker SMS format:
+`M|SEQ|LOC|MARKER_TYPE|SEVERITY|DATA|CRC`
+Example: `M|008|23.2599,77.4126|CR|9|F300|B4`
+
+Canonical status SMS format:
+`S|SEQ|PLAN|STATUS|CRC`
+Example: `S|004|PLAN101|3|A1`
+
+Checksum rule:
+Use XOR checksum over the message before the final checksum field.
+` ` `text
+message = "N|001|NGO01|RA|F|300|H"
+checksum = xor_checksum(message)
+final_message = message + "|" + checksum
+` ` `
+
+Important checksum note:
+Example checksums in `sms.md` (e.g. `B3`, `A1`, `B4`) are illustrative. The app computes checksums dynamically, so app-generated payloads always validate. For manually-typed demo payloads, compute the real XOR value or generate via the app.
+
+---
+
+## Module Execution Rule
+
+For every module:
+1. Check GitHub/local repo.
+2. Create or use feature branch.
+3. Create required files.
+4. Implement required functions.
+5. Check files, folders, and functions with `grep` and `find`.
+6. Build app.
+7. Test app.
+8. Commit and push.
+9. Verify on GitHub.
+10. Only then start the next module.
+
+---
+
+## Out of My Scope Now
+
+Android MVP is complete. Do not add these unless explicitly requested:
+- Backend Redis worker implementation
+- Need Assessment Agent
+- Resource Matching Agent
+- Coordination Agent
+- Web dashboard UI
+- PostgreSQL/PostGIS setup
+- Production Keycloak setup
+- Real telecom SMS gateway
+- Advanced optimization algorithm
+
+These belong to teammate/backend scope.
+
+Optional Android polish (only if time remains before demo):
+- Replace Compose Canvas tactical map with real MapLibre offline tiles.
+- Replace coroutine-based SyncManager with Android WorkManager.
+- Add real programmatic SMS send (requires SMS permission).
+
+---
+
+## Teammate Scope
+
+Teammate should continue:
+FastAPI backend -> Redis -> Need Assessment Agent -> Resource Matching Agent -> Coordination Agent -> PostgreSQL -> Web Dashboard
+
+Teammate immediate task:
+Connect FastAPI backend to Redis and trigger the Need Assessment Agent to process decoded JSON.
+
+Expected backend queues:
+` ` `text
+sms_incoming_queue
+need_assessment_queue
+resource_matching_queue
+coordination_queue
+replanning_queue
+sms_outgoing_queue
+` ` `
+
+Integration dependency for my demo:
+The `/api/v1/needs` endpoint must accept POST so the Android M10 sync worker can push queued reports. Confirm this endpoint is live before the offline-to-online demo.
+
+---
+
+## Next Milestones
+
+Milestone 1: End-to-End Web Flow
+Owner: Teammate
+Flow: Web Input -> Redis -> Agent -> DB -> Web Dashboard
+
+Milestone 2: SMS Fallback Demo
+Owner: Teammate + Me
+Flow: Web SMS Simulator -> SMS Parser -> Agent -> Dashboard
+
+Milestone 3: Android App Offline Sync and SMS Encoding
+Owner: Me
+Status: CODE COMPLETE
+Flow: Android Field Report -> Offline Queue -> SMS Payload -> Sync -> Backend
+Remaining: push/verify M6-M10, run live offline-to-online test.
+
+Milestone 4: Pitch Deck and Demo Video Recording
+Owner: All teammates
+Next action once Milestones 1-3 verified.
+
+---
+
+## Current Likely Task
+
+The current likely task is:
+Commit, push, and verify M6-M10 on `testabi8`, then run the end-to-end offline-to-online demo against the teammate's backend. Once verified, mark M6-M10 as Done in the module table and move to Milestone 4 (pitch + demo video).
+
+Do not start new Android features until M6-M10 are verified on GitHub and the offline-to-online demo passes.
