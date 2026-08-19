@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import org.humanitarian.fieldapp.ui.FieldReportScreen
 import org.humanitarian.fieldapp.ui.HomeScreen
+import org.humanitarian.fieldapp.ui.OfflineMapScreen
 import org.humanitarian.fieldapp.ui.PlaceholderScreen
 import org.humanitarian.fieldapp.ui.SmsDecoderScreen
 import org.humanitarian.fieldapp.ui.SmsFallbackScreen
@@ -74,9 +75,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     "offline_map" -> {
-                        PlaceholderScreen(
-                            title = "Offline Map",
-                            description = "Map-based incident visualization for field coordination.",
+                        OfflineMapScreen(
                             onBack = {
                                 currentScreen = "home"
                             }
