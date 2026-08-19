@@ -229,6 +229,35 @@ async def leave(claims: dict = current_device):
             "token": issue(claims["sub"], "helper", None)}
 
 
+class PushToken(BaseModel):
+    fcm_token: str = Field(min_length=10)
+    uid: str | None = None
+
+
+@router.put("/api/v1/helpers/me/push-token")
+async def put_push_token(body: PushToken, claims: dict = current_device):
+    """Register this device for push.
+
+    Called on every launch, not only at sign-up: FCM tokens rotate, and a stale
+    one is the usual reason push works in testing and silently stops in the
+    field. Upserting on every launch costs one write and removes the failure.
+    """
+    db = get_db()
+    if db is None:
+        return _err("NO_DATABASE")
+    uid = claims.get("sub") or body.uid
+    if not uid:
+        return _err("NO_SESSION")
+
+    coll = "helpers" if claims.get("role") == "helper" else "seekers"
+    res = await db[coll].update_one(
+        {"uid": uid},
+        {"$set": {"fcm_token": body.fcm_token, "fcm_updated_at": _now()}})
+    if res.matched_count == 0:
+        return _err("NO_SUCH_ACCOUNT")
+    return {"status": "ok", "uid": uid, "registered": True}
+
+
 class OfferLine(BaseModel):
     resource: str
     available: int = Field(ge=0)

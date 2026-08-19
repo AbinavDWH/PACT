@@ -41,6 +41,12 @@ class MainActivity : ComponentActivity() {
         transport = Transport(this, api, outbox)
         loc = Loc(this)
 
+        Push.ensureChannel(this)
+        // Re-register on every launch, not only at sign-up: FCM tokens rotate,
+        // and a stale one is the usual reason push works in testing and not in
+        // the field.
+        if (session.signedIn) Push.register(this, session)
+
         setContent {
             PactTheme {
                 RootScreen(this)
@@ -51,11 +57,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestPermissions() {
-        val wanted = listOf(
+        val wanted = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.SEND_SMS,
         )
+        // Android 13+ discards notifications silently without this.
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            wanted += Manifest.permission.POST_NOTIFICATIONS
+        }
         // Ask up front rather than at the moment of sending. Someone reporting
         // a collapsed building should not meet a permission dialog between
         // pressing Send and the message leaving.

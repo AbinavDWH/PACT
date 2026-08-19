@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.db.mongo import get_db
+from app.notify import fcm
 from app.privacy import crypto
 
 log = logging.getLogger(__name__)
@@ -68,14 +69,50 @@ def clear() -> None:
     _OUTBOX.clear()
 
 
+async def _fcm_token_for(owner_id: str) -> str | None:
+    """The registration token for a helper, by helper id or uid."""
+    db = get_db()
+    if db is None or not owner_id:
+        return None
+    doc = await db.helpers.find_one(
+        {"$or": [{"_id": owner_id}, {"uid": owner_id}]}, {"fcm_token": 1})
+    return (doc or {}).get("fcm_token")
+
+
 async def push(*, to: str, to_name: str | None, message: str, match_id: str,
                trace_id: str, kind: str, meta: dict | None = None) -> dict[str, Any]:
-    """The helper app channel. Stands in for FCM."""
+    """The helper app channel. Sends a real FCM message when configured.
+
+    The outbox row is written either way. It is no longer a stand-in for the
+    send -- it is the delivery record, and it now carries whether the send
+    actually happened and why not.
+    """
+    token = await _fcm_token_for(to)
+    result = await fcm.send(
+        token or "",
+        title="New assignment" if kind == "assignment" else "PACT",
+        body=message,
+        data={"match_id": match_id, "trace_id": trace_id, "kind": kind},
+    ) if token else {"sent": False, "reason": "helper has no registered device"}
+
+    # A token that Firebase rejects as unregistered means the app was
+    # reinstalled. Clearing it stops every future dispatch retrying a dead
+    # address, and the next launch registers a fresh one.
+    if result.get("stale_token"):
+        db = get_db()
+        if db is not None:
+            await db.helpers.update_one({"$or": [{"_id": to}, {"uid": to}]},
+                                        {"$unset": {"fcm_token": ""}})
+
     return await _record({
         "channel": "push", "kind": kind, "to": to,
         "to_masked": crypto.mask_name(to_name) or to,
         "match_id": match_id, "trace_id": trace_id,
-        "message": message, "meta": meta or {}, "ts": _now(), "state": "queued",
+        "message": message, "meta": meta or {}, "ts": _now(),
+        "state": "delivered" if result.get("sent") else "queued",
+        "delivered": bool(result.get("sent")),
+        "delivery_detail": result.get("reason"),
+        "message_id": result.get("message_id"),
     })
 
 

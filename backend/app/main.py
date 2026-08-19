@@ -29,6 +29,7 @@ from app.db import repo_events
 from app.db import seed as db_seed
 from app.db.indexes import ensure_indexes
 from app.llm import groq_client
+from app.notify import fcm
 from app.routers import admin as admin_router
 from app.routers import assignments as assignments_router
 from app.routers import ingest as ingest_router
@@ -49,6 +50,12 @@ async def lifespan(app: FastAPI):
 
     if s.groq_enabled:
         await groq_client.warmup()
+
+    # Optional. Without a service-account key this reports itself unavailable
+    # and dispatch falls back to the outbox, rather than failing at send time.
+    fcm_state = fcm.init()
+    log.info("  fcm:      %s", "ready" if fcm_state.get("ready")
+             else f"unavailable ({fcm_state.get('reason')})")
 
     if await mongo.connect():
         await ensure_indexes()
@@ -112,6 +119,10 @@ def health():
         "groq": {"configured": s.groq_enabled, "model": s.groq_model},
         "mode": "live-agents" if s.groq_enabled else "deterministic-fallback",
         "storage": "mongo" if mongo.is_healthy() else "in-memory fallback",
+        # Reported separately from "configured" for the same reason mongo is:
+        # a half-configured push setup (app registers a token, server cannot
+        # send) looks like nothing is wrong.
+        "push": fcm.status(),
         "rate_limit": groq_client.stats(),
     }
 

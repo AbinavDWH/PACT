@@ -16,6 +16,21 @@ plugins {
     id("com.android.application") version "8.7.3"
     kotlin("android") version "2.0.21"
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.21"
+    // Reads google-services.json and generates the Firebase config resources.
+    // Applied conditionally below: the build must not break for anyone who
+    // clones without the file.
+    id("com.google.gms.google-services") version "4.4.2" apply false
+}
+
+// FCM is optional at build time. Without google-services.json the app still
+// compiles and runs -- dispatch simply falls back to the outbox, which is what
+// it did before push existed. A hard dependency here would mean nobody can
+// build the app without a Firebase project of their own.
+val hasFirebase = file("google-services.json").exists()
+if (hasFirebase) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.lifecycle("google-services.json absent: building without FCM push")
 }
 
 android {
@@ -40,6 +55,10 @@ android {
         // backend's /sms/webhook via the simulator.
         val smsTo = (project.findProperty("pactSmsTo") as String?) ?: "+919999999999"
         buildConfigField("String", "SMS_TO", "\"$smsTo\"")
+
+        // Lets the app skip the FCM code paths entirely when it was built
+        // without a Firebase project, rather than catching NoClassDefFoundError.
+        buildConfigField("boolean", "HAS_FCM", file("google-services.json").exists().toString())
     }
 
     buildFeatures {
@@ -82,6 +101,12 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // The library is unconditional so Push.kt always compiles; only the
+    // google-services *plugin* above needs the JSON. Without it, Firebase is
+    // simply never initialised and BuildConfig.HAS_FCM gates every call site.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)

@@ -19,3 +19,9 @@ local.properties
 *.apk
 *.aab
 .cxx/
+
+# Firebase SERVER key. Lets anyone send push as this project -- a real secret,
+# unlike google-services.json which ships inside every APK.
+service-account.json
+firebase-service-account.json
+**/service-account*.json

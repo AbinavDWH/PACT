@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "187455819949",
+    "project_id": "pact-80d96",
+    "storage_bucket": "pact-80d96.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:187455819949:android:75a0487ae83735af5a3624",
+        "android_client_info": {
+          "package_name": "org.pact.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBdgwNEpHg5ZPtV5hGBYmcuwTI8yg13d3w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

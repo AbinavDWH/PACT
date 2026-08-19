@@ -14,3 +14,7 @@ groq
 # Privacy (memory_draft.md section 7.6, 8): credential hashing and field encryption.
 bcrypt
 cryptography
+
+# Real push (notify/fcm.py). Optional at runtime: without a service-account
+# key the sender reports itself unavailable and dispatch falls back to the outbox.
+firebase-admin

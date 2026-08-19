@@ -16,6 +16,10 @@
          genuine SMS and nothing anywhere received it. -->
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
 
+    <!-- Android 13+ requires this to be granted before a notification shows.
+         Without it push arrives and is silently discarded. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- GPS for the PACK10 coordinate. Fine location, because the ~1 km coarse
          position is what the SERVER shows a helper before acceptance. The
          request itself needs a real fix or a rescue team is sent to the wrong
@@ -52,6 +56,17 @@
              working when its app is not in the foreground. Inert unless
              gateway mode is switched on in the app: the receiver returns
              immediately when the flag is unset. -->
+        <!-- Data-only messages, so this runs in every app state. A notification
+             payload would be drawn by the system while backgrounded and this
+             handler would never see it. -->
+        <service
+            android:name=".PactMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".SmsGateway"
             android:exported="true"
