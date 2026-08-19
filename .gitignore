@@ -1,6 +1,12 @@
 __pycache__/
 *.py[cod]
+# Secrets. Broad by design: a leaked Atlas URI or Groq key is not recoverable
+# by editing history after the fact.
 .env
-.env.local
+.env.*
+*.env
+!.env.example
+atlas-credentials.env
+secrets/
 node_modules/
 .next/

@@ -1,2 +1,16 @@
 fastapi
 uvicorn[standard]
+pydantic-settings
+python-dotenv
+
+# Persistence (agents.md section 4). Optional at runtime: the app falls back to
+# in-memory stores when MONGO_URI is unset.
+motor
+
+# Agents (agents.md section 5). Optional at runtime: the scripted pipeline and
+# the deterministic fallbacks run without a key.
+groq
+
+# Privacy (memory_draft.md section 7.6, 8): credential hashing and field encryption.
+bcrypt
+cryptography
