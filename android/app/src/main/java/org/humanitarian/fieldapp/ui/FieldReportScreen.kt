@@ -49,6 +49,7 @@ import org.humanitarian.fieldapp.models.FieldReport
 import org.humanitarian.fieldapp.network.ApiClient
 import org.humanitarian.fieldapp.network.ApiResult
 import org.humanitarian.fieldapp.offline.OfflineQueue
+import org.humanitarian.fieldapp.offline.SubmittedReports
 import org.humanitarian.fieldapp.sms.SmsEncoder
 import org.humanitarian.fieldapp.ui.theme.PactAccent
 import org.humanitarian.fieldapp.ui.theme.PactBackground
@@ -131,6 +132,13 @@ fun FieldReportScreen(
                     submissionState = "success"
                     apiMessage = "Online submission successful."
                     smsPayload = ""
+                    // Persist to My Requests screen
+                    val needId = try {
+                        result.data.optString("need_id", "unknown")
+                    } catch (e: Exception) {
+                        "unknown"
+                    }
+                    SubmittedReports.add(context, report, needId)
                 }
 
                 is ApiResult.Error -> {

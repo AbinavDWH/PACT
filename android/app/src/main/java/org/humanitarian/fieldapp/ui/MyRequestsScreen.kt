@@ -3,7 +3,6 @@ package org.humanitarian.fieldapp.ui
 import android.text.format.DateUtils
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,9 +20,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -99,154 +98,154 @@ fun MyRequestsScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             // Action bar
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = PactSurface,
-                border = BorderStroke(1.dp, PactAccent)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "${queued.size} queued · ${sent.size} sent",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = PactTextPrimary
-                    )
-                    Text(
-                        text = "Queued reports will auto-sync when internet returns. Use Sync Now to force a sync.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = PactTextSecondary
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = {
-                                if (busy) return@Button
-                                busy = true
-                                statusMessage = ""
-                                scope.launch {
-                                    val result = SyncManager.syncQueue(context)
-                                    statusMessage = if (result.synced > 0) {
-                                        "${result.synced} report(s) synced."
-                                    } else if (result.failed > 0) {
-                                        "Sync failed (${result.failed} left in queue). Check connectivity."
-                                    } else {
-                                        "Nothing to sync."
-                                    }
-                                    reload()
-                                    busy = false
-                                }
-                            },
-                            enabled = !busy && queued.isNotEmpty(),
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = PactPrimary, contentColor = PactOnPrimary
-                            )
-                        ) {
-                            Text("Sync Now", fontWeight = FontWeight.SemiBold)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                SubmittedReports.clear(context)
-                                statusMessage = "Sent history cleared."
-                                reload()
-                            },
-                            enabled = sent.isNotEmpty(),
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, PactAccent),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = PactBackground, contentColor = PactTextPrimary
-                            )
-                        ) {
-                            Text("Clear sent", fontWeight = FontWeight.Medium)
-                        }
-                    }
-                    if (statusMessage.isNotBlank()) {
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PactSurface,
+                    border = BorderStroke(1.dp, PactAccent)
+                ) {
+                    androidx.compose.foundation.layout.Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text(
-                            text = statusMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = PactPrimary
+                            text = "${queued.size} queued · ${sent.size} sent",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = PactTextPrimary
                         )
+                        Text(
+                            text = "Queued reports auto-sync when internet returns. Use Sync Now to force.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PactTextSecondary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    if (busy) return@Button
+                                    busy = true
+                                    statusMessage = ""
+                                    scope.launch {
+                                        val result = SyncManager.syncQueue(context)
+                                        statusMessage = when {
+                                            result.synced > 0 -> "${result.synced} report(s) synced."
+                                            result.failed > 0 -> "Sync failed (${result.failed} left). Check connectivity."
+                                            else -> "Nothing to sync."
+                                        }
+                                        reload()
+                                        busy = false
+                                    }
+                                },
+                                enabled = !busy && queued.isNotEmpty(),
+                                modifier = Modifier.weight(1f).height(44.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PactPrimary, contentColor = PactOnPrimary
+                                )
+                            ) {
+                                Text("Sync Now", fontWeight = FontWeight.SemiBold)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    SubmittedReports.clear(context)
+                                    statusMessage = "Sent history cleared."
+                                    reload()
+                                },
+                                enabled = sent.isNotEmpty(),
+                                modifier = Modifier.weight(1f).height(44.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, PactAccent),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = PactBackground, contentColor = PactTextPrimary
+                                )
+                            ) {
+                                Text("Clear sent", fontWeight = FontWeight.Medium)
+                            }
+                        }
+                        if (statusMessage.isNotBlank()) {
+                            Text(
+                                text = statusMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = PactPrimary
+                            )
+                        }
                     }
                 }
             }
 
-            // LazyColumn: queued first, then sent
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                if (queued.isNotEmpty()) {
-                    item {
-                        SectionHeader(title = "Queued (not yet synced)", count = queued.size)
-                    }
-                    items(queued, key = { it.smsPayload }) { q ->
-                        RequestCard(
-                            statusLabel = "QUEUED",
-                            statusColor = PactPrimary,
-                            report = q.report,
-                            subline = q.smsPayload,
-                            sublineMono = true,
-                            footer = "Waiting for internet or next auto-sync."
-                        )
-                    }
+            // Queued section
+            if (queued.isNotEmpty()) {
+                item {
+                    SectionHeader(title = "Queued (not yet synced)", count = queued.size)
                 }
-
-                if (sent.isNotEmpty()) {
-                    item {
-                        SectionHeader(title = "Recently sent", count = sent.size)
-                    }
-                    items(sent, key = { "${it.needId}-${it.submittedAt}" }) { s ->
-                        val ago = DateUtils.getRelativeTimeSpanString(
-                            s.submittedAt, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS
-                        ).toString()
-                        RequestCard(
-                            statusLabel = "SENT",
-                            statusColor = PactTextSecondary,
-                            report = s.report,
-                            subline = "Backend ID: ${s.needId}",
-                            sublineMono = false,
-                            footer = ago
-                        )
-                    }
+                items(queued, key = { it.smsPayload }) { q ->
+                    RequestCard(
+                        statusLabel = "QUEUED",
+                        statusColor = PactPrimary,
+                        report = q.report,
+                        subline = q.smsPayload,
+                        sublineMono = true,
+                        footer = "Waiting for internet or next auto-sync."
+                    )
                 }
+            }
 
-                if (queued.isEmpty() && sent.isEmpty()) {
-                    item {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            color = PactSurface,
-                            border = BorderStroke(1.dp, PactAccent)
+            // Sent section
+            if (sent.isNotEmpty()) {
+                item {
+                    SectionHeader(title = "Recently sent", count = sent.size)
+                }
+                items(sent, key = { "${it.needId}-${it.submittedAt}" }) { s ->
+                    val ago = DateUtils.getRelativeTimeSpanString(
+                        s.submittedAt, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS
+                    ).toString()
+                    RequestCard(
+                        statusLabel = "SENT",
+                        statusColor = PactTextSecondary,
+                        report = s.report,
+                        subline = "Backend ID: ${s.needId}",
+                        sublineMono = false,
+                        footer = ago
+                    )
+                }
+            }
+
+            // Empty state
+            if (queued.isEmpty() && sent.isEmpty()) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = PactSurface,
+                        border = BorderStroke(1.dp, PactAccent)
+                    ) {
+                        androidx.compose.foundation.layout.Column(
+                            modifier = Modifier.padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.padding(24.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = "No requests yet",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = PactTextPrimary
-                                )
-                                Text(
-                                    text = "Submit a Field Report and it will appear here, whether it reached the backend or was queued for later.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = PactTextSecondary
-                                )
-                            }
+                            Text(
+                                text = "No requests yet",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = PactTextPrimary
+                            )
+                            Text(
+                                text = "Submit a Field Report and it will appear here, whether it reached the backend or was queued for later.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = PactTextSecondary
+                            )
                         }
                     }
                 }
@@ -258,7 +257,7 @@ fun MyRequestsScreen(onBack: () -> Unit) {
 @Composable
 private fun SectionHeader(title: String, count: Int) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -298,7 +297,7 @@ private fun RequestCard(
         color = PactSurface,
         border = BorderStroke(1.dp, PactAccent)
     ) {
-        Column(
+        androidx.compose.foundation.layout.Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -325,7 +324,7 @@ private fun RequestCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "${report.quantity} × ${report.resourceCode}",
+                    text = "${report.quantity} x ${report.resourceCode}",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = PactTextPrimary

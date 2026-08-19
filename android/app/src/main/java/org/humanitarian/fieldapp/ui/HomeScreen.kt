@@ -44,6 +44,7 @@ import org.humanitarian.fieldapp.ui.theme.PactTextSecondary
 @Composable
 fun HomeScreen(
     onNavigateToFieldReport: () -> Unit,
+    onNavigateToMyRequests: () -> Unit,
     onNavigateToSmsFallback: () -> Unit,
     onNavigateToSmsDecoder: () -> Unit,
     onNavigateToOfflineMap: () -> Unit,
@@ -137,7 +138,7 @@ fun HomeScreen(
                             color = PactTextPrimary
                         )
                         Text(
-                            text = "Open SMS Fallback to view payloads or sync when internet returns.",
+                            text = "Open My Requests to view payloads or sync when internet returns.",
                             style = MaterialTheme.typography.bodySmall,
                             color = PactTextSecondary
                         )
@@ -165,6 +166,23 @@ fun HomeScreen(
             ) {
                 Text(
                     text = "Field Report",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Button(
+                onClick = onNavigateToMyRequests,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PactSurface,
+                    contentColor = PactTextPrimary
+                ),
+                border = BorderStroke(1.dp, PactAccent)
+            ) {
+                Text(
+                    text = "My Requests",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )

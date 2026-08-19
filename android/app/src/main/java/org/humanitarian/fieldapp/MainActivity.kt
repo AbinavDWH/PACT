@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import org.humanitarian.fieldapp.ui.FieldReportScreen
 import org.humanitarian.fieldapp.ui.HomeScreen
+import org.humanitarian.fieldapp.ui.MyRequestsScreen
 import org.humanitarian.fieldapp.ui.OfflineMapScreen
 import org.humanitarian.fieldapp.ui.SmsDecoderScreen
 import org.humanitarian.fieldapp.ui.SmsFallbackScreen
@@ -32,6 +33,9 @@ class MainActivity : ComponentActivity() {
                             onNavigateToFieldReport = {
                                 currentScreen = "field_report"
                             },
+                            onNavigateToMyRequests = {
+                                currentScreen = "my_requests"
+                            },
                             onNavigateToSmsFallback = {
                                 currentScreen = "sms_fallback"
                             },
@@ -53,6 +57,14 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = "home"
                             },
                             onReturnHome = {
+                                currentScreen = "home"
+                            }
+                        )
+                    }
+
+                    "my_requests" -> {
+                        MyRequestsScreen(
+                            onBack = {
                                 currentScreen = "home"
                             }
                         )
