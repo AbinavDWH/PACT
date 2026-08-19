@@ -826,3 +826,28 @@ def set_auto_accept(enabled: bool = True):
 @app.on_event("startup")
 def seed_request_hub_on_startup():
     seed_demo_data()
+
+# =====================================================================
+# FAKE SMS INBOX (For Android Polling Demo)
+# =====================================================================
+fake_sms_inbox = []
+
+@app.get("/api/v1/sms/inbox")
+def get_sms_inbox():
+    """Android app polls this to get pending fake SMS messages"""
+    return {"messages": fake_sms_inbox}
+
+@app.post("/api/v1/sms/clear")
+def clear_sms_inbox():
+    """Android app clears the inbox after reading messages"""
+    fake_sms_inbox.clear()
+    return {"status": "cleared"}
+
+@app.post("/api/v1/sms/push")
+def push_fake_sms(payload: dict):
+    """Use this to send a fake SMS from backend/web to the Android app"""
+    # Example payload: {"message": "M|008|23.2599,77.4126|CR|9|F300|B4"}
+    msg = payload.get("message", "")
+    if msg:
+        fake_sms_inbox.append(msg)
+    return {"status": "pushed", "count": len(fake_sms_inbox)}

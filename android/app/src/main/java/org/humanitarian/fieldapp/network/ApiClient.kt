@@ -13,16 +13,14 @@ sealed class ApiResult<out T> {
 }
 
 object ApiClient {
-
-    private const val BASE_URL = "http://10.0.2.2:8000"
+    // UPDATED IP FOR PHYSICAL DEVICE
+    private const val BASE_URL = "http://10.142.1.202:8000"
 
     suspend fun postNeed(report: FieldReport): ApiResult<String> {
         return withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
-
             try {
                 val url = URL("$BASE_URL/api/v1/needs")
-
                 connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "POST"
                 connection.connectTimeout = 8000
@@ -43,6 +41,9 @@ object ApiClient {
                     .put("urgency_code", report.urgencyCode)
                     .put("notes", report.notes)
                     .put("source", "android")
+                    // ATTACH GPS COORDINATES
+                    .put("latitude", report.latitude ?: 0.0)
+                    .put("longitude", report.longitude ?: 0.0)
 
                 connection.outputStream.use { outputStream ->
                     outputStream.write(payload.toString().toByteArray())
@@ -50,24 +51,68 @@ object ApiClient {
                 }
 
                 val responseCode = connection.responseCode
-
                 val responseBody = if (responseCode in 200..299) {
-                    connection.inputStream.bufferedReader().use { reader ->
-                        reader.readText()
-                    }
+                    connection.inputStream.bufferedReader().use { it.readText() }
                 } else {
-                    connection.errorStream?.bufferedReader()?.use { reader ->
-                        reader.readText()
-                    } ?: ""
+                    connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                 }
 
-                if (responseCode in 200..299) {
-                    ApiResult.Success(responseBody.ifBlank { "HTTP $responseCode" })
-                } else {
-                    ApiResult.Error("HTTP $responseCode: ${responseBody.take(200)}")
-                }
+                if (responseCode in 200..299) ApiResult.Success(responseBody.ifBlank { "HTTP $responseCode" })
+                else ApiResult.Error("HTTP $responseCode: ${responseBody.take(200)}")
             } catch (exception: Exception) {
                 ApiResult.Error(exception.message ?: "Network request failed")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    // POLL FAKE SMS INBOX FROM BACKEND
+    suspend fun getSmsInbox(): ApiResult<List<String>> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$BASE_URL/api/v1/sms/inbox")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+
+                val responseCode = connection.responseCode
+                if (responseCode in 200..299) {
+                    val body = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(body)
+                    val messagesArray = json.getJSONArray("messages")
+                    val messages = mutableListOf<String>()
+                    for (i in 0 until messagesArray.length()) {
+                        messages.add(messagesArray.getString(i))
+                    }
+                    ApiResult.Success(messages)
+                } else {
+                    ApiResult.Error("HTTP $responseCode")
+                }
+            } catch (e: Exception) {
+                ApiResult.Error(e.message ?: "Inbox fetch failed")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    // CLEAR INBOX AFTER READING
+    suspend fun clearInbox(): ApiResult<String> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$BASE_URL/api/v1/sms/clear")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                connection.responseCode // Just trigger it
+                ApiResult.Success("cleared")
+            } catch (e: Exception) {
+                ApiResult.Error(e.message ?: "Clear failed")
             } finally {
                 connection?.disconnect()
             }

@@ -6,5 +6,7 @@ data class FieldReport(
     val resourceCode: String,
     val quantity: Int,
     val urgencyCode: String,
-    val notes: String = ""
+    val notes: String = "",
+    val latitude: Double? = null,
+    val longitude: Double? = null
 )
