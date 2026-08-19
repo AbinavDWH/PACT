@@ -134,20 +134,24 @@ fun FieldReportScreen(
                 }
 
                 is ApiResult.Error -> {
-                    OfflineQueue.addReport(context, report)
-
+                    // 1. Generate sequence and SMS payload first
                     val seq = SmsEncoder.nextSequence(
                         context = context,
                         organizationId = report.organizationId
                     )
 
-                    smsPayload = SmsEncoder.encodeNeed(
+                    val generatedPayload = SmsEncoder.encodeNeed(
                         report = report,
                         seq = seq
                     )
 
+                    // 2. Update UI state
+                    smsPayload = generatedPayload
                     submissionState = "queued"
                     apiMessage = "Internet unavailable. Report saved to offline queue."
+
+                    // 3. Save to offline queue with the generated payload
+                    OfflineQueue.addReport(context, report, generatedPayload)
                 }
             }
         }

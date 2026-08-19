@@ -37,6 +37,7 @@ import org.humanitarian.fieldapp.ui.theme.PactTextSecondary
 fun HomeScreen(
     onNavigateToFieldReport: () -> Unit,
     onNavigateToSmsFallback: () -> Unit,
+    onNavigateToSmsDecoder: () -> Unit,
     onNavigateToOfflineMap: () -> Unit,
     onNavigateToStatus: () -> Unit
 ) {
@@ -119,6 +120,11 @@ fun HomeScreen(
             HomeActionButton(
                 title = "SMS Fallback",
                 onClick = onNavigateToSmsFallback
+            )
+
+            HomeActionButton(
+                title = "SMS Decoder",
+                onClick = onNavigateToSmsDecoder
             )
 
             HomeActionButton(

@@ -10,6 +10,8 @@ import androidx.compose.runtime.setValue
 import org.humanitarian.fieldapp.ui.FieldReportScreen
 import org.humanitarian.fieldapp.ui.HomeScreen
 import org.humanitarian.fieldapp.ui.PlaceholderScreen
+import org.humanitarian.fieldapp.ui.SmsDecoderScreen
+import org.humanitarian.fieldapp.ui.SmsFallbackScreen
 import org.humanitarian.fieldapp.ui.theme.PactTheme
 
 class MainActivity : ComponentActivity() {
@@ -32,6 +34,9 @@ class MainActivity : ComponentActivity() {
                             onNavigateToSmsFallback = {
                                 currentScreen = "sms_fallback"
                             },
+                            onNavigateToSmsDecoder = {
+                                currentScreen = "sms_decoder"
+                            },
                             onNavigateToOfflineMap = {
                                 currentScreen = "offline_map"
                             },
@@ -53,9 +58,15 @@ class MainActivity : ComponentActivity() {
                     }
 
                     "sms_fallback" -> {
-                        PlaceholderScreen(
-                            title = "SMS Fallback",
-                            description = "Compact message encoding and decoding for low-connectivity reporting.",
+                        SmsFallbackScreen(
+                            onBack = {
+                                currentScreen = "home"
+                            }
+                        )
+                    }
+
+                    "sms_decoder" -> {
+                        SmsDecoderScreen(
                             onBack = {
                                 currentScreen = "home"
                             }
