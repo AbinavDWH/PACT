@@ -3,6 +3,7 @@ package org.humanitarian.fieldapp.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,6 +19,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -26,10 +28,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.humanitarian.fieldapp.models.UserRole
+import org.humanitarian.fieldapp.models.UserSession
 import org.humanitarian.fieldapp.offline.OfflineQueue
 import org.humanitarian.fieldapp.sync.SyncManager
 import org.humanitarian.fieldapp.ui.theme.PactAccent
@@ -48,14 +53,15 @@ fun HomeScreen(
     onNavigateToSmsFallback: () -> Unit,
     onNavigateToSmsDecoder: () -> Unit,
     onNavigateToOfflineMap: () -> Unit,
-    onNavigateToStatus: () -> Unit
+    onNavigateToStatus: () -> Unit,
+    onLogout: () -> Unit
 ) {
     val context = LocalContext.current
+    val userSession = UserSession.current
     var queueSize by remember { mutableStateOf(OfflineQueue.getQueueSize(context)) }
     var autoSyncMessage by remember { mutableStateOf("") }
 
-    // Auto-sync whenever the home screen opens.
-    // If internet is back, queued reports are pushed to the backend silently.
+    // Auto-sync whenever the home screen opens
     LaunchedEffect(Unit) {
         queueSize = OfflineQueue.getQueueSize(context)
         if (queueSize > 0) {
@@ -79,10 +85,21 @@ fun HomeScreen(
                             fontWeight = FontWeight.SemiBold,
                             color = PactTextPrimary
                         )
+                        if (userSession != null) {
+                            Text(
+                                text = "${userSession.displayName} · ${userSession.organizationId}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = PactTextSecondary
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    TextButton(onClick = onLogout) {
                         Text(
-                            text = "Offline-first humanitarian coordination",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = PactTextSecondary
+                            text = "Logout",
+                            color = PactPrimary,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 },
@@ -101,6 +118,55 @@ fun HomeScreen(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // USER ROLE CARD
+            if (userSession != null) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PactSurface,
+                    border = BorderStroke(1.dp, PactAccent)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Logged in as",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = PactTextSecondary
+                            )
+                            Text(
+                                text = when (userSession.role) {
+                                    UserRole.ADMIN -> "Administrator"
+                                    UserRole.DONOR_GROUP -> "Donor Group"
+                                    UserRole.INDIVIDUAL -> "Individual"
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = PactTextPrimary
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = PactAccent
+                        ) {
+                            Text(
+                                text = userSession.organizationId,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = PactPrimary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // MISSION CONSOLE
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -155,6 +221,7 @@ fun HomeScreen(
                 )
             }
 
+            // FIELD REPORT BUTTON (available to all roles)
             Button(
                 onClick = onNavigateToFieldReport,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -171,6 +238,7 @@ fun HomeScreen(
                 )
             }
 
+            // MY REQUESTS BUTTON (available to all roles)
             Button(
                 onClick = onNavigateToMyRequests,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -188,10 +256,19 @@ fun HomeScreen(
                 )
             }
 
-            HomeActionButton(title = "SMS Fallback", onClick = onNavigateToSmsFallback)
-            HomeActionButton(title = "SMS Decoder", onClick = onNavigateToSmsDecoder)
-            HomeActionButton(title = "Offline Map", onClick = onNavigateToOfflineMap)
-            HomeActionButton(title = "Status Update", onClick = onNavigateToStatus)
+            // ROLE-SPECIFIC MODULES
+            // Admin and Donor Group can see all modules
+            // Individual sees limited set (field-focused)
+            if (userSession?.role != UserRole.INDIVIDUAL) {
+                HomeActionButton(title = "SMS Fallback", onClick = onNavigateToSmsFallback)
+                HomeActionButton(title = "SMS Decoder", onClick = onNavigateToSmsDecoder)
+                HomeActionButton(title = "Offline Map", onClick = onNavigateToOfflineMap)
+                HomeActionButton(title = "Status Update", onClick = onNavigateToStatus)
+            } else {
+                // Individual field workers get simplified view
+                HomeActionButton(title = "SMS Fallback", onClick = onNavigateToSmsFallback)
+                HomeActionButton(title = "Offline Map", onClick = onNavigateToOfflineMap)
+            }
         }
     }
 }
