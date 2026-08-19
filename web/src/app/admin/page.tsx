@@ -190,10 +190,51 @@ function RunCard({ run, decide }: {
 
       {run.privacy && (
         <div className="privacy">
+          <div className="privacyHead">
+            <span className="pTitle">Privacy boundary</span>
+            {/* The measured count. A fixed list looks identical whether the
+                redactor ran or not; this number comes off the real payload. */}
+            <span className="pCount">
+              {run.privacy.fieldsRedacted} field instances redacted
+            </span>
+          </div>
+
           <div><span className="pLabel shared">shared</span> {run.privacy.shared.join(", ")}</div>
+          <div><span className="pLabel masked">masked</span> {run.privacy.masked.join(", ")}</div>
           <div><span className="pLabel held">withheld</span> {run.privacy.withheld.join(", ")}</div>
+
+          {Object.keys(run.privacy.byField).length > 0 && (
+            <div className="pByField">
+              {Object.entries(run.privacy.byField).map(([f, n]) => (
+                <span key={f} className="pChip">{f.replace(/_/g, " ")} ×{n}</span>
+              ))}
+            </div>
+          )}
+
+          {run.privacy.orgBlockedTypes.length > 0 && (
+            <div className="pOrg">
+              Organizations additionally never receive{" "}
+              {run.privacy.orgBlockedTypes.length} event types, including the
+              cross-organization debate.
+            </div>
+          )}
         </div>
       )}
+
+      {/* Revelation is a state transition, not a default. Nothing else in the
+          system flips it: only a helper accepting. */}
+      {run.reveals.map((r, i) => (
+        <div key={i} className="reveal">
+          <span className="revealBadge">unlocked</span>
+          <span>
+            {r.fields.map((f) => f.replace(/_/g, " ")).join(", ")} released to{" "}
+            <strong>{r.to}</strong>
+            {r.audienceBefore && r.audienceAfter
+              ? ` — ${r.audienceBefore} → ${r.audienceAfter}`
+              : ""}
+          </span>
+        </div>
+      ))}
 
       {run.committed && (
         <div className="committed">
@@ -207,9 +248,37 @@ function RunCard({ run, decide }: {
         </div>
       )}
 
+      {/* The two dispatch paths differ in behaviour, not wording: an org
+          allocation is not acceptable until its portal names a helper. */}
       {run.notifications.map((n, i) => (
-        <div key={i} className="notify">→ {n.target_masked}: {n.message}</div>
+        <div key={i} className="notify">
+          <div className="notifyHead">
+            <span className={`routeChip ${n.route ?? ""}`}>
+              {n.route === "org_portal" ? "org portal"
+                : n.route === "direct_volunteer" ? "direct to volunteer"
+                : n.channel}
+            </span>
+            {n.state && (
+              <span className={`stateChip ${n.acceptableNow ? "ready" : "waiting"}`}>
+                {n.state.replace(/_/g, " ")}
+              </span>
+            )}
+            <span className="notifyTarget">{n.target_masked}</span>
+          </div>
+          <div className="notifyMsg">{n.message}</div>
+          {n.detail && <div className="notifyDetail">{n.detail}</div>}
+        </div>
       ))}
+
+      {/* geo_live false means the run used fixtures. The pipeline continues
+          either way, so this is the only place it becomes visible. */}
+      {run.geoLive === false && (
+        <div className="geoWarn">
+          <strong>$geoNear returned nothing</strong> — this run used hardcoded
+          fixtures, not the database. Reseed near the request location:
+          <code>POST /api/v1/admin/seed {"{"}lat, lon{"}"}</code>
+        </div>
+      )}
 
       {run.errors.map((e, i) => (
         <div key={i} className="err">

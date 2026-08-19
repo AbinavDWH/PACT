@@ -85,9 +85,49 @@ export interface Run {
   autopilot?: boolean;
   adminAction?: { action: string; admin_id: string; option_id?: string; note?: string };
   committed?: { match_id: string; allocations: Allocation[]; unmet: number };
-  privacy?: { shared: string[]; withheld: string[] };
-  notifications: { channel: string; target_masked: string; message: string }[];
+
+  // A7's own report, measured off the real payload. `fieldsRedacted` and
+  // `byField` are what separate a working redactor from the fixed list this
+  // panel used to show -- which looked identical whether A7 did anything or
+  // not. If a rule stops matching, the count drops here.
+  privacy?: {
+    shared: string[];
+    withheld: string[];
+    masked: string[];
+    fieldsRedacted: number;
+    byField: Record<string, number>;
+    orgBlockedTypes: string[];
+  };
+
+  // The reveal transition: masked -> exact, and only on acceptance.
+  reveals: {
+    matchId: string;
+    to: string;
+    fields: string[];
+    audienceBefore?: string;
+    audienceAfter?: string;
+    trigger?: string;
+    ts: string;
+  }[];
+
+  notifications: {
+    channel: string;
+    target_masked: string;
+    message: string;
+    route?: string;          // org_portal | direct_volunteer
+    state?: string;          // awaiting_assignment | pending_accept
+    acceptableNow?: boolean;
+    detail?: string;
+  }[];
+
   errors: { agent: string; code: string; fallback_used?: boolean }[];
+
+  // False means $geoNear returned nothing and the run used hardcoded
+  // fixtures. The pipeline continues either way, so without surfacing it an
+  // operator cannot tell that the one real database query stopped running.
+  geoLive?: boolean;
+  cluster?: { duplicate: boolean; size: number };
+  llmAgents?: Record<string, boolean>;
   msTotal?: number;
   lastSeq: number;
 }

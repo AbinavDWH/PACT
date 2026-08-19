@@ -178,6 +178,75 @@
 }
 .pLabel.shared { background: rgba(78, 201, 168, 0.16); color: var(--good); }
 .pLabel.held { background: rgba(255, 107, 107, 0.14); color: var(--bad); }
+.pLabel.masked { background: rgba(224, 168, 83, 0.16); color: var(--warn); }
+
+.privacy {
+  border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem;
+}
+.privacyHead {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 0.75rem; margin-bottom: 0.45rem;
+}
+.pTitle {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--fg); font-weight: 700;
+}
+/* The measured count is the load-bearing part of this panel: a fixed list
+   looks the same whether the redactor ran or not. */
+.pCount {
+  font-size: 0.72rem; font-family: ui-monospace, monospace; color: var(--good);
+  background: rgba(78, 201, 168, 0.12); padding: 0.1rem 0.45rem; border-radius: 4px;
+}
+.pByField { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.45rem; }
+.pChip {
+  font-size: 0.66rem; font-family: ui-monospace, monospace; color: var(--dim);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0.08rem 0.35rem;
+}
+.pOrg { margin-top: 0.45rem; font-size: 0.72rem; color: var(--dim); font-style: italic; }
+
+/* ---- reveal transition ---- */
+.reveal {
+  display: flex; align-items: center; gap: 0.5rem; margin: 0.45rem 0;
+  font-size: 0.78rem; color: var(--fg);
+  background: rgba(78, 201, 168, 0.08);
+  border-left: 3px solid var(--good); border-radius: 0 6px 6px 0;
+  padding: 0.4rem 0.6rem;
+}
+.revealBadge {
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em;
+  background: var(--good); color: #06231c; font-weight: 700;
+  padding: 0.1rem 0.4rem; border-radius: 4px; white-space: nowrap;
+}
+
+/* ---- dispatch routing ---- */
+.notifyHead { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.routeChip {
+  font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 0.1rem 0.4rem; border-radius: 4px;
+  background: rgba(122, 162, 247, 0.16); color: var(--det);
+}
+.routeChip.direct_volunteer { background: rgba(78, 201, 168, 0.16); color: var(--good); }
+.stateChip {
+  font-size: 0.62rem; padding: 0.1rem 0.4rem; border-radius: 4px;
+  border: 1px solid var(--line); color: var(--dim);
+}
+/* An org allocation genuinely cannot be accepted yet; the colour says so. */
+.stateChip.waiting { border-color: var(--warn); color: var(--warn); }
+.stateChip.ready { border-color: var(--good); color: var(--good); }
+.notifyTarget { color: var(--fg); font-size: 0.75rem; }
+.notifyMsg { margin-top: 0.15rem; }
+.notifyDetail { margin-top: 0.1rem; font-size: 0.7rem; color: var(--dim); font-style: italic; }
+
+/* ---- geo fallback warning ---- */
+.geoWarn {
+  margin-top: 0.6rem; padding: 0.5rem 0.65rem; font-size: 0.76rem;
+  border: 1px solid var(--warn); border-radius: 6px;
+  background: rgba(224, 168, 83, 0.10); color: var(--warn);
+}
+.geoWarn code {
+  display: block; margin-top: 0.3rem; font-size: 0.7rem;
+  font-family: ui-monospace, monospace; color: var(--dim);
+}
 
 .committed {
   border-top: 1px solid var(--line); padding-top: 0.6rem; margin-top: 0.6rem; font-size: 0.85rem;

@@ -19,7 +19,7 @@ function emptyRun(traceId: string, ts: string): Run {
   return {
     traceId, runId: null, status: "running", summary: "", startedAt: ts,
     agentsSeen: [], bubbles: [], turns: [], options: [],
-    notifications: [], errors: [], lastSeq: 0,
+    notifications: [], errors: [], reveals: [], lastSeq: 0,
   };
 }
 
@@ -72,13 +72,41 @@ function reduce(run: Run, ev: Envelope): Run {
       }
       const structured = p.structured as Record<string, unknown> | undefined;
       if (structured?.withheld) {
+        // Everything A7 measured, not just the two category lists. The count
+        // and the per-field breakdown are the parts that prove the redactor
+        // ran; the category names alone look the same either way.
+        const audiences = structured.audiences as
+          | Record<string, { event_types_blocked?: string[] }>
+          | undefined;
         next.privacy = {
           shared: (structured.shared as string[]) ?? [],
           withheld: (structured.withheld as string[]) ?? [],
+          masked: (structured.masked as string[]) ?? [],
+          fieldsRedacted: (structured.fields_redacted as number) ?? 0,
+          byField: (structured.by_field as Record<string, number>) ?? {},
+          orgBlockedTypes: audiences?.org?.event_types_blocked ?? [],
+        };
+      }
+      if (structured?.cluster_size !== undefined) {
+        next.cluster = {
+          duplicate: Boolean(structured.duplicate),
+          size: (structured.cluster_size as number) ?? 1,
         };
       }
       break;
     }
+
+    case "privacy.reveal":
+      next.reveals = [...next.reveals, {
+        matchId: str("match_id") ?? "",
+        to: str("to") ?? "",
+        fields: (p.revealed_fields as string[]) ?? [],
+        audienceBefore: str("audience_before"),
+        audienceAfter: str("audience_after"),
+        trigger: str("trigger"),
+        ts: ev.ts,
+      }];
+      break;
 
     case "agent.tool_call":
       next.bubbles = [...next.bubbles, {
@@ -145,6 +173,10 @@ function reduce(run: Run, ev: Envelope): Run {
         channel: str("channel") ?? "",
         target_masked: str("target_masked") ?? "",
         message: str("message") ?? "",
+        route: str("route"),
+        state: str("state"),
+        acceptableNow: p.acceptable_now as boolean | undefined,
+        detail: str("detail"),
       }];
       break;
 
@@ -158,6 +190,11 @@ function reduce(run: Run, ev: Envelope): Run {
     case "run.completed":
       next.status = str("status") === "committed" ? "committed" : "rejected";
       next.msTotal = num("ms_total");
+      // geo_live false means $geoNear returned nothing and the run used
+      // fixtures. Surfacing it is the only way an operator can tell.
+      next.geoLive = p.geo_live as boolean | undefined;
+      next.llmAgents = p.llm_agents as Record<string, boolean> | undefined;
+      if (p.cluster) next.cluster = p.cluster as { duplicate: boolean; size: number };
       break;
   }
   return next;
