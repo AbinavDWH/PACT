@@ -150,6 +150,39 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 `BuildConfig.SMS_TO`. The backend must be started with `--host 0.0.0.0`, or the
 phone cannot reach it however correct the address is.
 
+## Gateway mode — real SMS, no vendor
+
+Install the **same APK** on a second handset with a SIM, open it, and tap
+*"Use this phone as the SMS gateway"* on the sign-up screen. Grant RECEIVE_SMS
+and switch gateway mode on. Point `BuildConfig.API_BASE` at the backend as
+usual.
+
+That phone now catches the inbound SMS off the cellular network and POSTs PACT
+frames to `/api/v1/sms/webhook`. The seeker phone's airplane-mode message
+becomes a real end-to-end path instead of a string someone pastes into the
+simulator.
+
+### Why not Twilio or MSG91
+
+Outbound A2P SMS in India requires DLT registration with TRAI — entity, header
+and template approval, taking days to weeks — and inbound SMS on an Indian
+virtual number is not sold to unregistered entities at all. No vendor
+integration can be made to work on a hackathon timeline at any price. Two
+ordinary SIMs carry the same real cellular SMS with nothing to register.
+
+### What the gateway will not forward
+
+A gateway handset still receives banking OTPs, delivery codes and private
+messages. `SmsGateway.looksLikePact` forwards only messages whose first field
+is a protocol frame type (`Q`, `G`, `C`, `S`) **and** which carry at least four
+fields. Everything else is dropped without being logged in full.
+
+The filter is deliberately asymmetric: wrongly ignoring a real request costs
+one retry from an app that already retries; wrongly forwarding someone's OTP is
+irreversible. `SmsGatewayTest` has 12 tests, most of which assert **refusal** —
+OTPs, personal messages, pipe-heavy marketing spam, transaction alerts, and
+lowercase frames.
+
 ## What is unverified
 
 Honest list, because none of this has run on hardware:

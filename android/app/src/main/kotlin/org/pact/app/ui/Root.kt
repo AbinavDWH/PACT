@@ -17,6 +17,7 @@ sealed interface Screen {
     data object Request : Screen
     data object Sent : Screen
     data object Assignments : Screen
+    data object Gateway : Screen
 }
 
 @Composable
@@ -36,8 +37,17 @@ fun RootScreen(activity: MainActivity) {
     var lastDetail by remember { mutableStateOf("") }
 
     when (screen) {
-        Screen.Signup -> SignupScreen(activity) {
+        Screen.Signup -> SignupScreen(
+            activity,
+            onGateway = { screen = Screen.Gateway },
+        ) {
             screen = if (session.role == "helper") Screen.Assignments else Screen.Request
+        }
+
+        Screen.Gateway -> GatewayScreen(activity) {
+            screen = if (!session.signedIn) Screen.Signup
+                     else if (session.role == "helper") Screen.Assignments
+                     else Screen.Request
         }
 
         Screen.Request -> RequestScreen(activity) { detail, trace ->

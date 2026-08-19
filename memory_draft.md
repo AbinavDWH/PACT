@@ -683,7 +683,7 @@ The two flows differ in exactly one function. That is the point of a single wire
 
 | Feature | How |
 |---|---|
-| Real SMS gateway | Simulator panel in the admin portal |
+| ~~Real SMS gateway~~ | **No longer mocked.** A second handset runs the app in gateway mode: a `SMS_RECEIVED` receiver forwards PACT frames to `/api/v1/sms/webhook`. Real cellular SMS, no vendor. The simulator panel survives as a convenience, not as the mechanism. See `android/README.md` |
 | Push notification | Console notifier writing to an outbox the portal renders |
 | Multiple organizations | Three or four seeded fixtures |
 | Helper Android mode, if time runs short | Seeded fixtures plus the organization portal |

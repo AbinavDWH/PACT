@@ -10,6 +10,12 @@
          would matter for release. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
 
+    <!-- Gateway mode. A second handset receives the real inbound SMS off the
+         cellular network and forwards PACT frames to /api/v1/sms/webhook,
+         which closes a loop that was previously open: the seeker phone sent a
+         genuine SMS and nothing anywhere received it. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
     <!-- GPS for the PACK10 coordinate. Fine location, because the ~1 km coarse
          position is what the SERVER shows a helper before acceptance. The
          request itself needs a real fix or a rescue team is sent to the wrong
@@ -41,5 +47,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Declared rather than registered at runtime, so the gateway keeps
+             working when its app is not in the foreground. Inert unless
+             gateway mode is switched on in the app: the receiver returns
+             immediately when the flag is unset. -->
+        <receiver
+            android:name=".SmsGateway"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

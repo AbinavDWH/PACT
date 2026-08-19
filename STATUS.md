@@ -386,6 +386,46 @@ a bare browser table. Styled in `admin.css`; both pages benefit.
 
 ---
 
+## 6D. Session 2 — removing the simulations
+
+**SMS is no longer simulated.** `/api/v1/sms/webhook` existed with no caller:
+the seeker phone sent a genuine `SmsManager` message and nothing anywhere
+received it, so the only route into the backend "over SMS" was a human pasting
+the string into the simulator panel.
+
+`SmsGateway` is a `SMS_RECEIVED` receiver in the same APK. Install it on a
+second handset, switch gateway mode on, and it forwards PACT frames to the
+webhook that was already written and waiting. Real cellular SMS, no vendor.
+
+A vendor was not an option, not merely a preference: outbound A2P SMS in India
+needs DLT registration with TRAI (days to weeks), and inbound SMS on an Indian
+virtual number is not sold to unregistered entities at all.
+
+The gateway forwards **only** messages whose first field is a protocol frame
+type and which carry at least four fields. A gateway handset also receives
+banking OTPs and private messages, and forwarding those would be a worse
+privacy failure than anything this project defends against. 12 tests, most
+asserting refusal — OTPs, personal messages, pipe-heavy spam, transaction
+alerts, lowercase frames.
+
+Verified: the exact body `SmsGateway.forward()` builds, POSTed at the live
+backend, returns `status: accepted`, `source: sms`, and dispatches the
+pipeline. The radio hop itself needs the second handset.
+
+**The privacy boundary is now visible in the portal** (MVP must-build §20.8,
+previously not done). The panel showed two lists of category names and nothing
+else — identical whether A7 did any work or not. It now renders the measured
+`fields_redacted` count, the per-field breakdown, the `masked` category, and
+the count of event types an organization never receives. A live run shows 38
+field instances redacted across 5 categories.
+
+`privacy.reveal` had **zero renderers** — the reveal transition, the core of
+the privacy story, was invisible. It now renders as an unlocked badge. Dispatch
+`route`/`state`/`acceptable_now` and `geo_live` are surfaced too; a run that
+fell back to fixtures previously looked identical to one that queried Atlas.
+
+---
+
 ## 6C. Fixed at the start of session 2
 
 **The seed can be planted anywhere.** `db/seed.py` now stores the fixture

@@ -28,7 +28,8 @@ import org.pact.app.MainActivity
  * creation from someone trapped in a collapsed building is the wrong product.
  */
 @Composable
-fun SignupScreen(activity: MainActivity, onDone: () -> Unit) {
+fun SignupScreen(activity: MainActivity, onGateway: () -> Unit = {},
+                 onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     var role by remember { mutableStateOf("seeker") }
@@ -153,6 +154,14 @@ fun SignupScreen(activity: MainActivity, onDone: () -> Unit) {
                     modifier = Modifier.size(20.dp), strokeWidth = 2.dp,
                     color = MaterialTheme.colorScheme.onPrimary)
                 else Text("Continue", style = MaterialTheme.typography.titleMedium)
+            }
+
+            // A spare handset can be turned into the SMS receiver without
+            // signing up as anyone. Kept off the main path: it is infrastructure,
+            // not a role a person has.
+            TextButton(onClick = onGateway, modifier = Modifier.fillMaxWidth()) {
+                Text("Use this phone as the SMS gateway",
+                     style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(24.dp))
         }

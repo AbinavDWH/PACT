@@ -70,7 +70,12 @@ it back to 0 afterwards.
 |---|---|---|
 | Admin portal | `http://localhost:3000/admin` | admin / pact-admin |
 | Org portal | `http://localhost:3000/org` | sanjeevani / pact-org |
-| Phone screen | mirrored or filmed | — |
+| Seeker phone | mirrored or filmed | — |
+| **Gateway phone** | same APK, gateway mode ON | — |
+
+The gateway handset must have a SIM, be on the same backend address, and have
+gateway mode switched on **before** section 6. Check its *Received* list is
+empty at the start so the arriving frame is unambiguous.
 
 ---
 
@@ -132,10 +137,21 @@ per-field breakdown, computed off the real payload rather than a fixed list.
 
 Airplane mode on the phone. Send the identical request.
 
-It goes by **SMS**. Hold the 35-character payload against the 160-character
-limit. The same request appears in the portal, decoded identically — because it
-is byte-for-byte the same string either way, verified by 11 parity vectors
-across Python and Kotlin.
+It goes by **real SMS**, over the cellular network, to a second handset running
+the app in gateway mode. That phone forwards the frame to
+`/api/v1/sms/webhook`, and the same request appears in the portal — decoded
+identically, because it is byte-for-byte the same string either way, verified
+by 11 parity vectors across Python and Kotlin.
+
+Show the gateway phone's *Received* list: the wire string that arrives is the
+one that left the other handset.
+
+Hold the 35-character payload against the 160-character limit.
+
+Worth saying: the gateway forwards **only** PACT frames. A phone that receives
+SMS also receives banking OTPs, and forwarding those would be a worse privacy
+failure than anything this system defends against — so the filter refuses them,
+with tests that assert the refusal.
 
 > **Do not claim the offline map updates.** Offline MapLibre is cut-line 1 and
 > was never built. `memory_draft.md` §24 step 6 still mentions it; that clause
