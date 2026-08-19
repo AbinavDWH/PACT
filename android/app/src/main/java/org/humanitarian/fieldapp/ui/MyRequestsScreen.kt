@@ -45,9 +45,9 @@ private val ORG_ID = "NGO01"
 
 private fun statusColor(status: String): Color {
     return when (status) {
-        "pending" -> Color(0xFFFF9800)                          // orange
-        "accepted", "processing", "matched", "allocated", "completed" -> Color(0xFF4CAF50) // green
-        "rejected", "duplicate" -> Color(0xFFF62440)            // red
+        "pending" -> Color(0xFFFF9800)
+        "accepted", "processing", "matched", "allocated", "completed" -> Color(0xFF4CAF50)
+        "rejected", "duplicate" -> Color(0xFFF62440)
         else -> Color(0xFF7c6a58)
     }
 }
@@ -71,16 +71,20 @@ private fun statusLabel(status: String): String {
 fun MyRequestsScreen(onBack: () -> Unit) {
     var requests by remember { mutableStateOf<List<OrgRequest>>(emptyList()) }
     var lastSync by remember { mutableStateOf("Loading…") }
+    var errorCount by remember { mutableStateOf(0) }
 
-    // Poll approval status every 3 seconds
     LaunchedEffect(Unit) {
         while (true) {
             when (val res = ApiClient.getRequestsByOrg(ORG_ID)) {
                 is ApiResult.Success -> {
                     requests = res.data
-                    lastSync = "Live · synced with coordinator"
+                    lastSync = "Live · ${res.data.size} request(s) · synced ${java.time.LocalTime.now()}"
+                    errorCount = 0
                 }
-                is ApiResult.Error -> lastSync = "Backend unreachable"
+                is ApiResult.Error -> {
+                    errorCount++
+                    lastSync = "Backend unreachable (${errorCount} attempts)"
+                }
             }
             delay(3000)
         }
@@ -103,7 +107,25 @@ fun MyRequestsScreen(onBack: () -> Unit) {
             Text(lastSync, style = MaterialTheme.typography.bodySmall, color = PactTextSecondary)
 
             if (requests.isEmpty()) {
-                Text("No requests submitted yet by $ORG_ID.", color = PactTextSecondary)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PactSurface,
+                    border = BorderStroke(1.dp, PactAccent)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text(
+                            "No requests found for $ORG_ID",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = PactTextSecondary
+                        )
+                        Text(
+                            "Submit a field report to see it here.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PactTextSecondary
+                        )
+                    }
+                }
             }
 
             requests.forEach { req ->
@@ -134,7 +156,6 @@ fun MyRequestsScreen(onBack: () -> Unit) {
                             color = PactTextPrimary
                         )
 
-                        // GPS coordinates
                         val coords = if (req.latitude != null && req.longitude != null)
                             String.format("GPS: %.4f, %.4f", req.latitude, req.longitude)
                         else "GPS: not attached"
@@ -145,6 +166,14 @@ fun MyRequestsScreen(onBack: () -> Unit) {
                             fontFamily = FontFamily.Monospace,
                             color = PactTextSecondary
                         )
+
+                        if (req.createdAt.isNotBlank()) {
+                            Text(
+                                text = "Created: ${req.createdAt}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = PactTextSecondary
+                            )
+                        }
                     }
                 }
             }
