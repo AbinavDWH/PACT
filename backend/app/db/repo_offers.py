@@ -87,7 +87,17 @@ def _shape(row: dict, i: int) -> dict[str, Any]:
     if org:
         name, kind, reliability, load = org["name"], org["type"], org.get("reliability", 0.7), org.get("capacity_load", 0.5)
     elif helper:
-        name, kind, reliability, load = f"{helper.get('name_enc', 'Volunteer')}", "volunteer", 0.55, 0.1
+        # name_enc is Fernet ciphertext for anyone who signed up through the
+        # app. Using it raw put "enc:gAAAAA..." in front of the advocates as a
+        # candidate's name, so the debate argued about a blob. Volunteers are
+        # identified to the agents by a masked handle, not a real name: the
+        # agents do not need identity to allocate, and A7 would strip it anyway.
+        # The UID is already the pseudonymous wire identity (a device hash), so
+        # showing it is safe and gives the advocates something readable to
+        # argue about. mask_uid() bullets it out, which reads as mojibake.
+        uid = helper.get("uid")
+        name = f"Volunteer {uid}" if uid else "Volunteer"
+        kind, reliability, load = "volunteer", 0.55, 0.1
     else:
         name, kind, reliability, load = owner["id"], "unknown", 0.5, 0.5
 

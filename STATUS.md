@@ -1,6 +1,6 @@
 # PACT — Build Status
 
-**Last updated:** 2026-08-19
+**Last updated:** 2026-08-19 (end of session 1)
 **Purpose:** hand-off document. Read this plus the four design docs and you have
 everything needed to continue in a fresh session.
 
@@ -48,8 +48,8 @@ an `option_id`, validated against the solver's set.
 | 1 | Event bus, WebSocket, portal, MongoDB, seed, geo, solver | **Complete** |
 | 2 | Codec: tables, Python + Kotlin, vectors, ingest | **Complete** |
 | 3 | Real Groq agents + A1, A7, reveal, notify | **Complete** — see §5 |
-| 4 | Android app | **Builds, never run on a phone** — see §12 |
-| 5 | Organization portal | Backend + `/ws/org` done; no `/org/*` UI |
+| 4 | Android app | **Complete** — installed and verified on a vivo V2336 |
+| 5 | Organization portal | **Complete** — `/org` login, assignments, assign-to-helper, roster |
 | 6 | A10 verification, A11 replanner | Endpoints + decline trigger; no SLA timers |
 | 7 | Polish, backup video, pitch | Not started |
 
@@ -133,7 +133,7 @@ stored flipped it would report thousands of km.
 
 ### Tests
 
-**194 Python tests pass.** `cd backend && python -m pytest tests/ -q`
+**203 Python tests pass.** `cd backend && python -m pytest tests/ -q`
 
 | File | Count | Covers |
 |---|---|---|
@@ -143,6 +143,7 @@ stored flipped it would report thousands of km.
 | `test_dedupe.py` | 20 | Geohash against three published vectors, plus cluster behaviour |
 | `test_notify.py` | 10 | The two dispatch paths differ in channel, state and acceptability |
 | `test_ws_org.py` | 10 | Org socket auth, projection, and bus topic routing |
+| `test_org_scope.py` | 7 | Cross-org refusal. Every test asserts on refusal, not on success |
 
 Plus **7 Kotlin tests, 11 vectors byte-identical to Python** —
 `source android/env.sh && cd android && gradle :codec:test`
@@ -334,19 +335,26 @@ existed to handle. Unreachable from the current pipeline, fixed anyway.
 
 ### Still open
 
-**The event `seq` counter resets on process restart.** It is in-process
-(`bus/envelope.py`), so after a restart fresh events carry lower seq numbers
-than persisted ones. This breaks `?since=` replay ordering and makes
-`/admin/requests` list stale traces first. Cosmetic for a single-session demo,
-wrong across a restart. *Est. 20 min — seed the counter from the max persisted
-seq at startup.*
+**`POST /api/v1/crises` is still mounted.** Deprecated Evaluation-1 endpoint,
+no callers anywhere (checked web, tests, android). Removal was started and
+stopped mid-edit; `main.py` still carries it plus a dead `RESOURCE_PROVIDERS`
+dict and `create_response_plan()` that nothing calls. *Est. 5 min.*
+
+**Seed data is in Bhopal; the demo may not be.** `db/seed.py` centres on
+23.2599, 77.4126. A request from Chennai (13.008, 80.006 — where the phone test
+ran) is ~1,500 km away, past the 150 km radius ladder, so `$geoNear` returns
+nothing and the pipeline silently falls back to fixtures with `geo_live: false`.
+The geo query is one of the four things `memory_draft.md` §23 says never to cut,
+so **reseed near wherever the demo actually happens.** *Est. 20 min — make the
+seed centre a parameter on `POST /api/v1/admin/seed`.*
 
 **A10 has no LLM branch** (cut-line 2, deliberate) and **A11 has no SLA timer
 or T1-preemption trigger** (cut-line 3, deliberate). The decline trigger is
 live.
 
-**No `/org/*` portal UI.** The backend and the redacted socket are done; the
-Next.js routes are not built.
+**Streaming yields only ~3 token deltas per call.** Groq sends JSON-mode content
+in large chunks, so the token-by-token effect is weaker than designed. Not a
+bug; use `DEMO_LATENCY_MS` to pace event emission instead.
 
 ### Missing modules from `agents.md` §7
 
@@ -356,8 +364,6 @@ exist.
 
 ### Not started
 
-- **Organization portal UI** (`/org/*` Next.js routes). The backend and the
-  redacted socket are done.
 - **Offline MapLibre.**
 - **Backup demo video.** Non-negotiable before presenting.
 
@@ -369,6 +375,55 @@ exist.
   `DEMO_LATENCY_MS` to pace event emission instead.
 - Triage occasionally returns `tier: T1` with `life_threat: false` — internally
   inconsistent model output. Harmless today; would need a validator to enforce.
+
+---
+
+## 6A. Fixed during step 5
+
+**Organization endpoints had no authentication at all.** `/api/v1/org/assignments`,
+`/roster`, `/group-code` and `/assignments/{id}/assign` took `org_id` straight
+from the query string on a router with no dependency, so any caller could read
+or act on any organization by editing the URL -- verified live: a bare curl with
+no token returned another org's assignments and roster. That is precisely the
+boundary the organization portal exists to demonstrate.
+
+Now derived from the token via `org_scope` (403 on mismatch, 401 with no token),
+covered by `tests/test_org_scope.py`.
+
+**Ciphertext leaked into two user-visible places.** `name_enc` is Fernet
+ciphertext for anyone who signed up through the app; it was returned raw in the
+org roster, and used as the *candidate name* in `repo_offers._shape` -- so the
+advocates argued about a candidate literally named `enc:gAAAAAB...`. The roster
+now decrypts (an org is entitled to its own helpers' names); candidates use a
+readable pseudonymous handle instead.
+
+**`.reqTable` had no CSS anywhere**, so the admin All Requests table rendered as
+a bare browser table. Styled in `admin.css`; both pages benefit.
+
+---
+
+## 6B. Fixed at the end of session 1
+
+**The event `seq` counter restarted at 1 on every boot.** After a restart, fresh
+events carried lower numbers than persisted ones, so `?since=` replay returned
+nothing and All Requests sorted stale traces above live ones. `envelope.seed_from()`
+now resumes from `repo_events.max_seq()` before anything can publish. Verified:
+startup logs `event seq resumed at 221`.
+
+**All Requests showed zero rows while the database held thirty traces.** The page
+read only the live socket, so a fresh tab showed nothing that arrived before it
+opened — a page titled "every incoming request" showing none of them. It now
+hydrates from `GET /api/v1/admin/requests` and merges live runs over archived
+rows. Verified: 30 rows.
+
+### Corrections to earlier claims in this file
+
+- The `agent.tool_call` with `radius_km: None` reported earlier was **not a bug**.
+  There are two distinct tool_call events (`mongo.$geoNear` and
+  `solver.score_candidates`); a test script was reading `radius_km` off both.
+- `whesvc` is **"Windows Health and Optimized Experiences"**, not "Windows
+  Hardware Error". Its ~2 GB of `.etl` traces in `C:\Windows\Temp` are not this
+  project's and regenerate continuously.
 
 ---
 
@@ -384,7 +439,10 @@ exist.
 | Python | 3.13.14 | system |
 | pnpm | 11.22.0 | global |
 
-**Environment variables were NOT set persistently.** Source per session:
+**Environment variables are now set persistently** (user scope): `JAVA_HOME`,
+`ANDROID_HOME`, `ANDROID_SDK_ROOT`, and critically `GRADLE_USER_HOME` →
+`E:\PACT\tools\gradle-home`. Without that last one Gradle rebuilt a 1.4 GB
+cache on C:, which was deleted. A per-session script also exists:
 
 ```bash
 source android/env.sh        # bash
@@ -487,7 +545,6 @@ Get-NetTCPConnection -LocalPort 8000 -State Listen |
 |---|---|
 | Session/signup (`/session/signup`, `/helpers/join`) | 1–2 h |
 | Portal UI for the privacy panel, reveal badge and dispatch route | 1–2 h |
-| Organization portal `/org/*` Next.js routes | 2–3 h |
 | `seq` counter seeded from Mongo at startup (§6) | 20 m |
 | Android app: signup, chip screen, GPS, HTTP/SMS transport, outbox | 8–12 h |
 | Offline MapLibre | 2–3 h |

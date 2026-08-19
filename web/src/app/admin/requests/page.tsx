@@ -2,12 +2,35 @@
 
 // The top-bar "every incoming request" view. Same socket, tabular projection.
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAgents } from "../../_lib/AgentSocketProvider";
+import { authFetch } from "../../_lib/useAgentSocket";
 import "../admin.css";
 
 export default function RequestsPage() {
   const { orderedRuns, connected, eventCount } = useAgents();
+
+  // The socket only carries what arrived since this tab opened, so a fresh load
+  // showed an empty table while the database held thirty traces. "All requests"
+  // has to mean all of them, not all of this session's.
+  const [history, setHistory] = useState<
+    { trace_id: string; ts?: string; completed?: boolean }[]
+  >([]);
+  useEffect(() => {
+    let alive = true;
+    void authFetch("/api/v1/admin/requests?limit=200")
+      .then((r) => r.json())
+      .then((j) => { if (alive) setHistory(j.traces ?? []); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Live runs win on conflict: they carry the full reduced state, whereas a
+  // persisted row is only a summary.
+  const liveIds = new Set(orderedRuns.map((r) => r.traceId));
+  const archived = history.filter((h) => !liveIds.has(h.trace_id));
+  const total = orderedRuns.length + archived.length;
 
   return (
     <div className="admin">
@@ -27,9 +50,9 @@ export default function RequestsPage() {
         </div>
       </header>
 
-      <h2 className="sectionTitle">Every request received ({orderedRuns.length})</h2>
+      <h2 className="sectionTitle">Every request received ({total})</h2>
 
-      {orderedRuns.length === 0 ? (
+      {total === 0 ? (
         <div className="empty">
           <h2>Nothing yet</h2>
           <p>Requests appear here the moment they arrive, matched or not.</p>
@@ -60,6 +83,22 @@ export default function RequestsPage() {
                       ? r.committed.allocations.map((a) => `${a.qty} × ${a.name}`).join(", ")
                       : "—"}
                   </td>
+                </tr>
+              ))}
+              {archived.map((h) => (
+                <tr key={h.trace_id}>
+                  <td className="trace">{h.trace_id}</td>
+                  <td className="dimCell">
+                    {h.ts ? new Date(h.ts).toLocaleString() : "—"}
+                  </td>
+                  <td>
+                    <span className={`badge ${h.completed ? "committed" : ""}`}>
+                      {h.completed ? "completed" : "incomplete"}
+                    </span>
+                  </td>
+                  <td className="dimCell">—</td>
+                  <td className="dimCell">—</td>
+                  <td className="dimCell">from transcript</td>
                 </tr>
               ))}
             </tbody>

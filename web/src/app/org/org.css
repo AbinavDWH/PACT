@@ -1,0 +1,98 @@
+/* Organization portal. Inherits the admin palette from admin.css so the two
+   read as one product; only the org-specific pieces live here. */
+
+.orgLoginWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.orgLogin {
+  width: min(420px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.6rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.orgLogin .brand { margin-bottom: 0.2rem; }
+.orgLoginHint { color: var(--dim); font-size: 0.82rem; margin: 0 0 0.4rem; }
+.orgLogin label {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--dim);
+}
+.orgLogin input {
+  background: var(--panel2); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 0.55rem 0.7rem; font-size: 0.9rem;
+}
+.orgLogin button {
+  margin-top: 0.4rem; background: var(--llm); color: #0b0f14;
+  border: 0; border-radius: 6px; padding: 0.6rem 1rem;
+  font-weight: 600; font-size: 0.88rem; cursor: pointer;
+}
+.orgLogin button:disabled { opacity: 0.5; cursor: not-allowed; }
+.orgError {
+  color: var(--bad); font-size: 0.8rem;
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  border-radius: 6px; padding: 0.4rem 0.6rem;
+}
+.orgSeeds { color: #5d7086; font-size: 0.72rem; }
+.orgSeeds code { color: var(--dim); }
+
+/* The boundary statement. This is the point of the screen, so it sits above
+   the content rather than in a footnote. */
+.orgBoundary {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  margin: 1rem 1.5rem 0; padding: 0.7rem 0.9rem;
+  border: 1px dashed var(--line); border-radius: 8px;
+  font-size: 0.78rem; color: var(--dim); line-height: 1.6;
+}
+
+.groupCode {
+  font-family: ui-monospace, monospace; font-size: 0.78rem;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 0.2rem 0.5rem; color: var(--llm);
+}
+
+.orgNote {
+  margin: 0.8rem 1.5rem 0; padding: 0.5rem 0.8rem;
+  border: 1px solid rgba(78, 201, 168, 0.4); border-radius: 6px;
+  background: rgba(78, 201, 168, 0.08); color: var(--good);
+  font-size: 0.82rem;
+}
+
+.orgWhy {
+  margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--ink);
+  border-left: 2px solid var(--llm); padding-left: 0.6rem;
+}
+
+.orgSeeker {
+  margin-top: 0.6rem; font-size: 0.8rem; color: var(--dim);
+  display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+}
+
+.orgAssign { margin-top: 0.7rem; align-items: center; }
+.orgAssign select {
+  background: var(--panel2); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 0.4rem 0.6rem; font-size: 0.82rem;
+}
+
+/* The nav items are buttons here rather than links. */
+.nav button.navItem {
+  background: transparent; font-family: inherit; cursor: pointer;
+}
+.nav button.navItem.active {
+  color: var(--ink); background: var(--panel2); border-color: var(--line);
+}
+
+.orgUrgency {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--warn); border: 1px solid rgba(255, 180, 84, 0.35);
+  border-radius: 4px; padding: 0.05rem 0.35rem;
+}

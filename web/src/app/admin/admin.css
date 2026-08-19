@@ -226,3 +226,43 @@
 .fanItem { font-size: 0.75rem; background: rgba(122,162,255,0.14); color: var(--llm);
            border-radius: 4px; padding: 0.1rem 0.45rem; }
 .simWarn { margin-top: 0.4rem; font-size: 0.74rem; color: var(--warn); }
+
+/* ---- tables (All Requests, org roster) ----
+   These had no styles at all: the markup existed and rendered as a bare
+   browser table with columns stretched across the viewport. */
+.reqTable {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+.reqTable thead th {
+  text-align: left;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+  font-weight: 600;
+  padding: 0.6rem 0.9rem;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.reqTable tbody td {
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid rgba(34, 48, 65, 0.55);
+  vertical-align: middle;
+}
+.reqTable tbody tr:last-child td { border-bottom: 0; }
+.reqTable tbody tr:hover { background: var(--panel2); }
+.reqTable .dimCell { color: var(--dim); }
+.reqTable .trace {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  color: var(--llm);
+}
+/* Keep the first column from being squeezed by long capability lists. */
+.reqTable th:first-child, .reqTable td:first-child { width: 22%; }

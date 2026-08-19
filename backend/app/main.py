@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.bus import envelope
 from app.bus.eventbus import bus
 from app.config import get_settings
 from app.db import mongo
@@ -50,6 +51,9 @@ async def lifespan(app: FastAPI):
     if await mongo.connect():
         await ensure_indexes()
         bus.set_persist(repo_events.persist)
+        # Before any event is published, so replay and ordering stay coherent
+        # across a restart.
+        envelope.seed_from(await repo_events.max_seq())
         if await db_seed.get_db_empty():
             await db_seed.seed()
         check = await db_seed.verify_lng_lat()

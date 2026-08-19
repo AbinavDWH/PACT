@@ -84,3 +84,17 @@ async def recent_traces(limit: int = 50) -> list[dict[str, Any]]:
     ]).to_list(limit)
     return [{"trace_id": r["_id"], "last_seq": r["last_seq"], "ts": r["ts"],
              "completed": "run.completed" in r["types"]} for r in rows]
+
+
+async def max_seq() -> int:
+    """Highest seq already stored. Used at startup to resume numbering rather
+    than restarting at 1 and colliding with history."""
+    db = get_db()
+    if db is None:
+        return 0
+    try:
+        row = await db.agent_events.find_one({}, {"seq": 1}, sort=[("seq", -1)])
+        return int((row or {}).get("seq") or 0)
+    except Exception:
+        log.exception("max_seq lookup failed")
+        return 0

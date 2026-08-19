@@ -14,16 +14,37 @@ and dedup key, never as a completeness check.
 from __future__ import annotations
 
 import itertools
+import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
+log = logging.getLogger(__name__)
+
 V = 1
 
+# Seeded from the highest persisted seq at startup (see seed_from). Starting at
+# 1 every boot meant that after a restart, fresh events carried LOWER numbers
+# than events already in agent_events: `?since=` replay returned nothing, and
+# the All Requests list sorted stale traces above live ones.
 _counter = itertools.count(1)
+_lock = threading.Lock()
 
 
 def next_seq() -> int:
     return next(_counter)
+
+
+def seed_from(highest_persisted: int) -> int:
+    """Resume numbering above anything already stored. Idempotent and safe to
+    call before any event is published."""
+    global _counter
+    if highest_persisted <= 0:
+        return 0
+    with _lock:
+        _counter = itertools.count(highest_persisted + 1)
+    log.info("event seq resumed at %d", highest_persisted + 1)
+    return highest_persisted + 1
 
 
 def now_iso() -> str:

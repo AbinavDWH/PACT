@@ -16,14 +16,14 @@ import hmac
 import logging
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.bus.eventbus import bus
 from app.config import get_settings
 from app.db import repo_matches, repo_requests
 from app.db.mongo import get_db
-from app.deps import issue
+from app.deps import current_org, issue
 from app.notify import channels, dispatcher
 from app.privacy import crypto
 from app.privacy import policy as privacy_policy
@@ -35,6 +35,31 @@ router = APIRouter(tags=["assignments"])
 
 def _err(code: str, status: str = "error", **extra):
     return {"status": status, "error": code, **extra}
+
+
+async def org_scope(org_id: str | None = None,
+                    claims: dict = Depends(current_org)) -> str:
+    """The organization the caller is actually allowed to act as.
+
+    These endpoints previously took `org_id` straight from the query string
+    with no authentication on the router at all, so any caller could read any
+    organization's assignments and roster by editing the URL. That is precisely
+    the boundary the org portal exists to demonstrate, so it is now derived
+    from the token.
+
+    When `require_auth` is off (the demo escape hatch in deps.py) `current_org`
+    returns no org_id; only then is the query parameter honoured.
+    """
+    token_org = claims.get("org_id")
+    if token_org:
+        if org_id and org_id != token_org:
+            raise HTTPException(
+                status_code=403,
+                detail="that organization is not yours to read")
+        return token_org
+    if org_id:
+        return org_id
+    raise HTTPException(status_code=400, detail="org_id required")
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +278,7 @@ async def org_login(body: OrgLogin):
 
 
 @router.get("/api/v1/org/group-code")
-async def group_code(org_id: str):
+async def group_code(org_id: str = Depends(org_scope)):
     db = get_db()
     if db is None:
         return _err("NO_DATABASE")
@@ -264,7 +289,8 @@ async def group_code(org_id: str):
 
 
 @router.get("/api/v1/org/assignments")
-async def org_assignments(org_id: str, limit: int = 20):
+async def org_assignments(limit: int = 20,
+                          org_id: str = Depends(org_scope)):
     """Only this org's allocations, projected for the `org` audience: masked
     seeker position, no contact, no cross-org debate, no rival stock."""
     rows = await repo_matches.for_owner(org_id, limit)
@@ -287,22 +313,40 @@ async def org_assignments(org_id: str, limit: int = 20):
 
 
 @router.get("/api/v1/org/roster")
-async def roster(org_id: str):
+async def roster(org_id: str = Depends(org_scope)):
     """Helpers who joined with this org's group code."""
     db = get_db()
     if db is None:
         return {"roster": [], "org_id": org_id}
     rows = await db.helpers.find({"org_id": org_id}).to_list(100)
-    return {"org_id": org_id, "roster": [
-        {"helper_id": r["_id"], "uid": r.get("uid"),
-         "name": r.get("name_enc"), "status": r.get("status"),
-         "capabilities": r.get("capabilities", [])} for r in rows]}
+    out = []
+    for r in rows:
+        # Seeded helpers carry a plaintext name; anyone who signed up through
+        # the app carries Fernet ciphertext. Returning the raw field leaked
+        # "enc:gAAAAA..." straight into the roster table. An organization is
+        # entitled to the names of helpers who joined with its own group code,
+        # so decrypt; if the key has rotated and decryption fails, fall back to
+        # a mask rather than showing ciphertext.
+        raw = r.get("name_enc")
+        name = crypto.decrypt(raw) if crypto.is_encrypted(raw) else raw
+        out.append({
+            "helper_id": r["_id"], "uid": r.get("uid"),
+            "name": name or crypto.mask_uid(r.get("uid")),
+            "status": r.get("status"),
+            "capabilities": r.get("capabilities", []),
+        })
+    return {"org_id": org_id, "roster": out}
 
 
 @router.post("/api/v1/org/assignments/{match_id}/assign")
-async def org_assign(match_id: str, body: AssignBody):
+async def org_assign(match_id: str, body: AssignBody,
+                     scope: str = Depends(org_scope)):
     """The org portal step. Attaching a named helper is what moves an org
     allocation out of `awaiting_assignment` and makes it acceptable."""
+    if body.org_id != scope:
+        raise HTTPException(status_code=403,
+                            detail="cannot assign on another organization's behalf")
+
     found = await repo_matches.find_allocation(match_id, body.org_id)
     if found is None:
         return _err("NOT_YOUR_ASSIGNMENT")
