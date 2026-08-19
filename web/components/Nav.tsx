@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { UserSession, getSession, clearSession, getRoleLabel } from "../lib/auth";
+import { UserSession, getSession, clearSession, getRoleLabel, canAccess } from "../lib/auth";
 
-const NAV_ITEMS = [
+const ALL_NAV_ITEMS = [
   { href: "/requests", label: "Command Center" },
   { href: "/donor", label: "Donor Portal" },
   { href: "/needs", label: "Needs" },
@@ -25,8 +25,7 @@ export default function Nav() {
   useEffect(() => {
     const s = getSession();
     setSessionState(s);
-    
-    // Redirect to login if not authenticated (except on login page)
+
     if (!s && pathname !== "/login") {
       router.push("/login");
     }
@@ -38,10 +37,14 @@ export default function Nav() {
     router.push("/login");
   };
 
-  // Don't show nav on login page
   if (pathname === "/login" || !session) {
     return null;
   }
+
+  // FILTER nav items based on role
+  const visibleNavItems = ALL_NAV_ITEMS.filter((item) =>
+    canAccess(item.href, session.role)
+  );
 
   return (
     <nav className="border-b border-[#FFE5BF] bg-white">
@@ -52,7 +55,7 @@ export default function Nav() {
               PACT
             </Link>
             <div className="flex gap-1 overflow-x-auto">
-              {NAV_ITEMS.map((item) => {
+              {visibleNavItems.map((item) => {
                 const isActive = pathname === item.href;
                 return (
                   <Link
@@ -71,7 +74,6 @@ export default function Nav() {
             </div>
           </div>
 
-          {/* User Info + Logout */}
           <div className="flex items-center gap-4">
             <div className="text-right">
               <div className="text-sm font-semibold text-[#2b1a0e]">

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { UserRole, setSession } from "../../lib/auth";
+import { UserRole, getRoleHome, setSession } from "../../lib/auth";
+
+
 
 const ROLES: { value: UserRole; label: string; description: string; icon: string }[] = [
   {
@@ -33,23 +35,24 @@ export default function LoginPage() {
   const [error, setError] = useState("");
 
   const handleSubmit = () => {
-    if (!selectedRole) {
-      setError("Please select a role");
-      return;
-    }
-    if (!orgId.trim() || !displayName.trim()) {
-      setError("Please fill in all fields");
-      return;
-    }
+  if (!selectedRole) {
+    setError("Please select a role");
+    return;
+  }
+  if (!orgId.trim() || !displayName.trim()) {
+    setError("Please fill in all fields");
+    return;
+  }
 
-    setSession({
-      role: selectedRole,
-      organizationId: orgId.trim().toUpperCase(),
-      displayName: displayName.trim(),
-    });
+  setSession({
+    role: selectedRole,
+    organizationId: orgId.trim().toUpperCase(),
+    displayName: displayName.trim(),
+  });
 
-    router.push("/requests");
-  };
+  // CHANGE THIS LINE: redirect to role-specific home
+  router.push(getRoleHome(selectedRole));
+};
 
   return (
     <main className="min-h-screen bg-[#FFFAF3] flex items-center justify-center px-6 py-12">

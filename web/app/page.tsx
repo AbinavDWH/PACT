@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getSession } from "../lib/auth";
+import { getSession, getRoleHome } from "../lib/auth";
 
 export default function Home() {
   const router = useRouter();
@@ -12,7 +12,8 @@ export default function Home() {
     if (!session) {
       router.push("/login");
     } else {
-      router.push("/requests");
+      // Redirect to role-specific home page
+      router.push(getRoleHome(session.role));
     }
   }, [router]);
 
