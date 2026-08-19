@@ -10,9 +10,9 @@ import androidx.compose.runtime.setValue
 import org.humanitarian.fieldapp.ui.FieldReportScreen
 import org.humanitarian.fieldapp.ui.HomeScreen
 import org.humanitarian.fieldapp.ui.OfflineMapScreen
-import org.humanitarian.fieldapp.ui.PlaceholderScreen
 import org.humanitarian.fieldapp.ui.SmsDecoderScreen
 import org.humanitarian.fieldapp.ui.SmsFallbackScreen
+import org.humanitarian.fieldapp.ui.StatusUpdateScreen
 import org.humanitarian.fieldapp.ui.theme.PactTheme
 
 class MainActivity : ComponentActivity() {
@@ -83,9 +83,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     "status_update" -> {
-                        PlaceholderScreen(
-                            title = "Status Update",
-                            description = "Team availability, safety status, and operational readiness updates.",
+                        StatusUpdateScreen(
                             onBack = {
                                 currentScreen = "home"
                             }
