@@ -14,7 +14,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "rejected", label: "Rejected" },
 ];
 
-// Lifecycle: accepted requests advance through processing -> matched -> allocated -> completed
 const ACCEPTED_FAMILY = new Set(["accepted", "processing", "matched", "allocated", "completed"]);
 const REJECTED_FAMILY = new Set(["rejected", "duplicate"]);
 
@@ -38,7 +37,6 @@ export default function RequestsPage() {
     }
   }, []);
 
-  // web_plan.md: poll every 3 seconds, no WebSockets for the hackathon
   useEffect(() => {
     refresh();
     const timer = setInterval(refresh, 3000);
