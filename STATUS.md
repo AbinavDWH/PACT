@@ -133,7 +133,7 @@ stored flipped it would report thousands of km.
 
 ### Tests
 
-**203 Python tests pass.** `cd backend && python -m pytest tests/ -q`
+**220 Python tests pass.** `cd backend && python -m pytest tests/ -q`
 
 | File | Count | Covers |
 |---|---|---|
@@ -144,6 +144,7 @@ stored flipped it would report thousands of km.
 | `test_notify.py` | 10 | The two dispatch paths differ in channel, state and acceptability |
 | `test_ws_org.py` | 10 | Org socket auth, projection, and bus topic routing |
 | `test_org_scope.py` | 7 | Cross-org refusal. Every test asserts on refusal, not on success |
+| `test_seed_centre.py` | 17 | Re-centring. Asserts relative geometry survives the move **and** that the layout actually moves — preserving geometry by planting everything on one point would satisfy the first alone |
 
 Plus **7 Kotlin tests, 11 vectors byte-identical to Python** —
 `source android/env.sh && cd android && gradle :codec:test`
@@ -335,19 +336,6 @@ existed to handle. Unreachable from the current pipeline, fixed anyway.
 
 ### Still open
 
-**`POST /api/v1/crises` is still mounted.** Deprecated Evaluation-1 endpoint,
-no callers anywhere (checked web, tests, android). Removal was started and
-stopped mid-edit; `main.py` still carries it plus a dead `RESOURCE_PROVIDERS`
-dict and `create_response_plan()` that nothing calls. *Est. 5 min.*
-
-**Seed data is in Bhopal; the demo may not be.** `db/seed.py` centres on
-23.2599, 77.4126. A request from Chennai (13.008, 80.006 — where the phone test
-ran) is ~1,500 km away, past the 150 km radius ladder, so `$geoNear` returns
-nothing and the pipeline silently falls back to fixtures with `geo_live: false`.
-The geo query is one of the four things `memory_draft.md` §23 says never to cut,
-so **reseed near wherever the demo actually happens.** *Est. 20 min — make the
-seed centre a parameter on `POST /api/v1/admin/seed`.*
-
 **A10 has no LLM branch** (cut-line 2, deliberate) and **A11 has no SLA timer
 or T1-preemption trigger** (cut-line 3, deliberate). The decline trigger is
 live.
@@ -366,15 +354,6 @@ exist.
 
 - **Offline MapLibre.**
 - **Backup demo video.** Non-negotiable before presenting.
-
-### Other
-
-- `POST /api/v1/crises` is a deprecated Evaluation-1 endpoint still mounted.
-- Streaming yields only ~3 token deltas per call. Groq sends JSON-mode content
-  in large chunks, so the "watch it think" effect is weaker than designed. Use
-  `DEMO_LATENCY_MS` to pace event emission instead.
-- Triage occasionally returns `tier: T1` with `life_threat: false` — internally
-  inconsistent model output. Harmless today; would need a validator to enforce.
 
 ---
 
@@ -399,6 +378,45 @@ readable pseudonymous handle instead.
 
 **`.reqTable` had no CSS anywhere**, so the admin All Requests table rendered as
 a bare browser table. Styled in `admin.css`; both pages benefit.
+
+---
+
+## 6C. Fixed at the start of session 2
+
+**The seed can be planted anywhere.** `db/seed.py` now stores the fixture
+layout as **kilometre offsets from a centre** rather than absolute coordinates,
+and `POST /api/v1/admin/seed` takes `{lat, lon, label}`. `PACT_SEED_LAT` /
+`PACT_SEED_LON` set the default per machine, and `GET /api/v1/admin/seed`
+reports where the fixtures currently sit alongside the radius ladder.
+
+Offsets are in kilometres, not degrees, because a degree of longitude is 102 km
+at Bhopal and 108 km at Chennai — degree offsets would stretch the layout 6%
+east-west as it moved and distort every ETA.
+
+`verify_lng_lat()` no longer probes a hardcoded city. It derives its probe from
+an offer that is actually in the database, so the geo sanity check survives a
+reseed instead of reporting a false failure.
+
+Verified live: reseeded at Chennai, then a request from 13.083, 80.271 produced
+`geo_live: true`, `2 candidates within 10 km`, nearest at **0.53 km**. Before
+this it would have been `geo_live: false` with hardcoded candidates and nothing
+on screen to say the database query had stopped running.
+
+**Currently seeded at 13.008, 80.006** ("phone test location"). Move it with:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/seed \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"lat": <lat>, "lon": <lon>, "label": "venue"}'
+```
+
+**The Evaluation-1 endpoints are gone.** `POST /api/v1/crises`,
+`RESOURCE_PROVIDERS`, `create_response_plan()` and the resource/urgency maps
+are removed from `main.py`, which is now 115 lines of app factory, lifespan and
+health. They had no callers anywhere, but they still answered requests — a
+stale endpoint returning a plausible allocation from a hardcoded provider table
+that no longer matched the database. agents.md §6.6 already listed them as
+deleted.
 
 ---
 
@@ -485,13 +503,30 @@ one. The startup log names the real cause.
 
 ```bash
 # backend  (do NOT use --reload: it hangs and orphans workers holding :8000)
-cd backend && python -m uvicorn app.main:app --port 8000
+# --host 0.0.0.0 is required, or the phone cannot reach it however correct
+# the address in BuildConfig.API_BASE is.
+cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # web
 cd web && pnpm dev
 ```
 
-Portal **http://localhost:3000/admin** · API docs **http://localhost:8000/docs**
+Admin **http://localhost:3000/admin** (admin / pact-admin) ·
+Org **http://localhost:3000/org** (sanjeevani / pact-org) ·
+API docs **http://localhost:8000/docs**
+
+**Before demoing, put the fixtures where you are.** The radius ladder stops at
+150 km and the fallback is silent:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/seed \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"lat": 13.008, "lon": 80.006, "label": "venue"}'
+```
+
+Then confirm a real request reports `geo_live: true` in `run.completed`. If it
+says `false`, the pipeline is running on fixtures and `$geoNear` — one of the
+four things never to cut — is not actually executing.
 
 Make the admin gate wait instead of auto-approving:
 
@@ -541,24 +576,22 @@ Get-NetTCPConnection -LocalPort 8000 -State Listen |
 
 ## 10. Remaining work
 
-| Item | Est. |
-|---|---|
-| Session/signup (`/session/signup`, `/helpers/join`) | 1–2 h |
-| Portal UI for the privacy panel, reveal badge and dispatch route | 1–2 h |
-| `seq` counter seeded from Mongo at startup (§6) | 20 m |
-| Android app: signup, chip screen, GPS, HTTP/SMS transport, outbox | 8–12 h |
-| Offline MapLibre | 2–3 h |
-| Polish, full test pass, **backup video**, pitch | 3–5 h |
+| Item | Est. | Notes |
+|---|---|---|
+| **Backup demo video** | 1–2 h | Non-negotiable. Most likely item to get squeezed out |
+| Full dry run against the seeded venue centre | 30 m | Confirms `geo_live: true` on the day |
+| Pitch and judge Q&A rehearsal | 1–2 h | `memory_draft.md` §24–25 |
+| A10 LLM branch | 1 h | **Cut-line 2 — deliberate.** Skip unless time is spare |
+| A11 SLA timers, T1 preemption | 1–2 h | **Cut-line 3 — deliberate.** Skip |
+| Offline MapLibre | 2–3 h | **Cut-line 1 — cut first.** Skip |
 
-**Total 16–28 hours.** The Android app is roughly half of it and is the only
-path to the airplane-mode demo moment.
+**Everything not marked as a cut-line is about 3–5 hours**, and it is all
+step 7. The build is feature-complete against the MVP scope.
 
-**Suggested order:** the portal UI first — A7, the reveal transition and the
-two dispatch paths are all live in the backend and none of them are visible on
-screen yet, which is the cheapest large gain available. Then decide on Android
-based on actual remaining time. A mobile-shaped web client is a ~3 h substitute
-for a ~10 h app: same codec, same endpoints, loses only "real SMS on a real
-phone".
+**Suggested order:** record the video first, while the system is known-good and
+before anything else is touched. Then rehearse. The remaining agent work is
+explicitly cut-line material and should stay cut unless the video and the pitch
+are both finished.
 
 **Never cut** (per `memory_draft.md` §23): the live WebSocket agent debate, the
 approve/override bar, `$geoNear`, and the three-option arbiter choice.
@@ -567,25 +600,33 @@ approve/override bar, `$geoNear`, and the three-option arbiter choice.
 
 ## 11. Git
 
-Branch `workAbe`.
+Branch `workAbe`. **Everything through step 5 is committed; the tree is clean.**
 
 ```
+34d8170 phase 4                org portal, org_scope auth, seq resume, All Requests hydration
+e2bba8c Step 4: Android app    app module, 13 JVM tests
+733db20 Ignore Gradle build output
+d0fbfb5 session + signup       and the seeker-name leak they exposed
+703f525 Complete step 3        real A5 scores, working override, triage invariants
+43286a6 Close step 3 gaps      A7 privacy, A1 dedupe, reveal, dispatch routing
 496c34a phase 3 start          Groq agents, fallbacks, llm/
 f208841 phase 2 (partial)      codec
 179a219 Phase 1 Updated
 d5a2905 Phase 1
 ```
 
-Step 3 is committed. The A1/A7/reveal/notify work lands on top of `496c34a`.
+This section has gone stale three times. **Run `git log --oneline -6` rather
+than trusting it.**
 
-New modules:
+Modules added since step 2:
 
 ```
 backend/app/privacy/      policy.py, redact.py, crypto.py
 backend/app/notify/       dispatcher.py, channels.py
-backend/app/agents/dedupe.py
-backend/app/routers/assignments.py
-backend/tests/            test_privacy.py, test_dedupe.py, test_notify.py, test_ws_org.py
+backend/app/agents/       dedupe.py, solver.py
+backend/app/routers/      assignments.py, session.py
+android/app/              the Android module
+web/src/app/org/          the organization portal
 ```
 
 ---

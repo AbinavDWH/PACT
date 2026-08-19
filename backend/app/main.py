@@ -1,23 +1,25 @@
-"""PACT backend.
+﻿"""PACT backend: app factory, lifespan, health.
 
-Step 1 of the build order (memory_draft.md section 22): event bus, WebSocket,
-and a scripted pipeline, so the admin portal is visibly alive before any real
-agent exists. Mongo and Groq land behind this without changing the wire format.
+Routers carry the surface area; this file only wires them up and does the
+startup work that has to happen in order -- Groq warmup, Mongo, indexes, the
+event sequence counter, then the seed and its geo sanity check.
 
-The legacy Evaluation-1 endpoints below still work; they are marked for removal
-once /api/v1/pact/ingest replaces them (agents.md section 6.6).
+The Evaluation-1 endpoints that used to live here (`POST /api/v1/crises`, plus
+`RESOURCE_PROVIDERS`, `create_response_plan` and the resource/urgency maps) are
+gone. They were superseded by `/api/v1/pact/ingest` and the real A5 solver, and
+had no callers anywhere in backend, web or android -- but they still answered
+requests, which meant a stale endpoint could produce a plausible-looking
+allocation from a hardcoded provider table that no longer matched the database.
+agents.md 6.6 already listed them as deleted.
 """
 
 from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
-from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 from app.bus import envelope
 from app.bus.eventbus import bus
@@ -113,115 +115,3 @@ def health():
         "rate_limit": groq_client.stats(),
     }
 
-
-# ---------------------------------------------------------------------------
-# Legacy Evaluation-1 endpoints. Superseded by /api/v1/pact/ingest; kept so the
-# existing web page keeps working until the portal rewrite lands.
-# ---------------------------------------------------------------------------
-
-RESOURCE_MAP = {
-    "F": "food_kits", "W": "water_kits", "M": "medical_kits", "T": "tents",
-    "B": "blankets", "H": "hygiene_kits", "D": "medical_teams", "U": "unknown",
-    "food": "food_kits", "water": "water_kits", "medical": "medical_kits",
-    "medicine": "medical_kits", "tents": "tents", "tent": "tents",
-    "blankets": "blankets", "blanket": "blankets",
-}
-
-URGENCY_MAP = {
-    "L": "low", "M": "medium", "H": "high", "C": "critical",
-    "low": "low", "medium": "medium", "high": "high", "critical": "critical",
-}
-
-LOCATION_NAME_MAP = {"RA": "Region A", "RB": "Region B", "RC": "Region C"}
-
-RESOURCE_PROVIDERS = {
-    "food_kits": [
-        {"organization_id": "CSR_002", "available_quantity": 220, "eta_hours": 4, "service_region": "Region A"},
-        {"organization_id": "GOV_003", "available_quantity": 180, "eta_hours": 6, "service_region": "Region A"},
-    ],
-    "water_kits": [
-        {"organization_id": "NGO_001", "available_quantity": 260, "eta_hours": 3, "service_region": "Region A"},
-        {"organization_id": "CSR_002", "available_quantity": 150, "eta_hours": 5, "service_region": "Region A"},
-    ],
-    "medical_kits": [
-        {"organization_id": "NGO_001", "available_quantity": 150, "eta_hours": 3, "service_region": "Region A"},
-        {"organization_id": "HOSP_004", "available_quantity": 200, "eta_hours": 5, "service_region": "Region A"},
-    ],
-    "tents": [
-        {"organization_id": "GOV_003", "available_quantity": 120, "eta_hours": 6, "service_region": "Region B"},
-        {"organization_id": "CSR_002", "available_quantity": 90, "eta_hours": 5, "service_region": "Region B"},
-    ],
-}
-
-
-def xor_checksum(text: str) -> str:
-    value = 0
-    for char in text:
-        value ^= ord(char)
-    return format(value, "02X")
-
-
-def map_resource(value: str) -> str:
-    v = value.strip()
-    return RESOURCE_MAP.get(v.upper()) or RESOURCE_MAP.get(v.lower()) or v
-
-
-def map_urgency(value: str) -> str:
-    v = value.strip()
-    return URGENCY_MAP.get(v.upper()) or URGENCY_MAP.get(v.lower()) or v
-
-
-def create_response_plan(location: str, resource: str, quantity: int, urgency: str):
-    """Greedy fill by fastest ETA. Becomes the A5 solver skeleton and the
-    Groq-unavailable fallback (agents.md section 6.6)."""
-    normalized = map_resource(resource)
-    remaining = max(0, quantity)
-    allocations = []
-    for provider in sorted(RESOURCE_PROVIDERS.get(normalized, []), key=lambda i: i["eta_hours"]):
-        if remaining <= 0:
-            break
-        assigned = min(provider["available_quantity"], remaining)
-        remaining -= assigned
-        allocations.append({
-            "organization_id": provider["organization_id"], "resource": normalized,
-            "quantity": assigned, "eta_hours": provider["eta_hours"],
-            "approximate_service_region": provider["service_region"], "status": "assigned",
-        })
-
-    plan_id = f"PLAN-{uuid4().hex[:6].upper()}"
-    return {
-        "plan_id": plan_id,
-        "need": {"location": location, "resource": normalized, "quantity": quantity,
-                 "urgency": map_urgency(urgency)},
-        "allocations": allocations,
-        "allocated_quantity": quantity - remaining,
-        "unmet_quantity": remaining,
-        "privacy": {
-            "shared": ["organization ID", "resource type", "available quantity",
-                       "approximate service region", "response ETA"],
-            "withheld": ["donor details", "staff data", "exact warehouse location",
-                         "full inventory", "funding details", "internal routes"],
-        },
-        "activity": [
-            f"Triage Agent classified the request as {map_urgency(urgency)}.",
-            "Privacy Filter shared only minimum-necessary coordination data.",
-            f"Geo Candidate Finder found {len(allocations)} eligible providers.",
-            f"Allocation Solver generated {plan_id}.",
-        ],
-    }
-
-
-class CrisisRequest(BaseModel):
-    location: str
-    resource: str
-    quantity: int
-    urgency: str = "high"
-    organization_id: str = "FIELD_WEB_01"
-
-
-@app.post("/api/v1/crises", deprecated=True)
-def create_crisis(payload: CrisisRequest):
-    if payload.quantity <= 0:
-        return {"status": "error", "error": "BAD_QTY"}
-    plan = create_response_plan(payload.location, payload.resource, payload.quantity, payload.urgency)
-    return {"status": "accepted", "crisis_id": f"CRISIS-{uuid4().hex[:6].upper()}", "plan": plan}

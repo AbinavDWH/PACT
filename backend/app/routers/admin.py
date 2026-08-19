@@ -17,7 +17,7 @@ from app.agents import scripted
 from app.bus import gate
 from app.bus.eventbus import bus
 from app.config import get_settings
-from app.db import mongo, repo_events, repo_matches, repo_requests
+from app.db import mongo, repo_events, repo_matches, repo_offers, repo_requests
 from app.db import seed as db_seed
 from app.deps import check_admin_credentials, current_admin, issue
 from app.llm import groq_client
@@ -96,13 +96,49 @@ def runs():
     return {"runs": _runs, "count": len(_runs)}
 
 
+class SeedRequest(BaseModel):
+    """Where to plant the fixtures.
+
+    Omit lat/lon to use PACT_SEED_LAT/LON, or Bhopal if those are unset.
+    """
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
+    label: str | None = None
+
+
 @router.post("/seed")
-async def reseed():
-    """Idempotent demo reset."""
-    result = await db_seed.seed(reset=True)
+async def reseed(payload: SeedRequest | None = None):
+    """Idempotent demo reset, optionally re-centred.
+
+    Re-centring matters more than it looks. The radius ladder stops at 150 km,
+    so fixtures left in Bhopal while the demo runs anywhere else make every
+    `$geoNear` return nothing -- and the pipeline then falls back to hardcoded
+    candidates and carries on, showing a debate and an allocation with
+    `geo_live: false`. The failure is invisible unless you look for it.
+    """
+    payload = payload or SeedRequest()
+    centre = None
+    if payload.lat is not None and payload.lon is not None:
+        centre = (payload.lat, payload.lon)
+    elif payload.lat is not None or payload.lon is not None:
+        return {"status": "error", "error": "BOTH_OR_NEITHER",
+                "detail": "supply lat and lon together, or neither"}
+
+    result = await db_seed.seed(reset=True, centre=centre, label=payload.label)
     check = await db_seed.verify_lng_lat()
     _runs.clear()
     return {**result, "geo_check": check}
+
+
+@router.get("/seed")
+async def seed_info():
+    """Where the fixtures currently sit. Lets the portal warn when a request
+    lands outside the seeded area instead of quietly using fixtures."""
+    centre = await db_seed.seeded_centre()
+    return {"centre": ({"lat": centre[0], "lon": centre[1]} if centre else None),
+            "default": {"lat": db_seed.default_centre()[0],
+                        "lon": db_seed.default_centre()[1]},
+            "radius_ladder_km": repo_offers.RADIUS_LADDER_KM}
 
 
 @router.get("/requests")

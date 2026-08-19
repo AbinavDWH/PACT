@@ -785,7 +785,8 @@ endpoints below are built; `/session/*`, `/helpers/join`, `/helpers/me/offers`, 
 | POST | `/api/v1/admin/matches/{id}/verify` | Manual verification override |
 | POST | `/api/v1/admin/replan/{request_id}` | Force A11 |
 | POST | `/api/v1/admin/settings` | `{autopilot, gate_timeout_s, radius_ladder}` |
-| POST | `/api/v1/admin/seed` | Idempotent demo reset |
+| POST | `/api/v1/admin/seed` | Idempotent demo reset. `{lat, lon, label}` re-centres the fixtures; omit to use `PACT_SEED_LAT/LON`, or Bhopal. **Re-centre before any demo** — the radius ladder stops at 150 km, and beyond it `$geoNear` returns nothing while the pipeline carries on with fixtures and `geo_live: false` |
+| GET | `/api/v1/admin/seed` | Where the fixtures currently sit, plus the radius ladder |
 | GET | `/api/v1/admin/stats` | Counters for the status strip |
 
 ### 6.5 Transport
@@ -805,11 +806,11 @@ endpoints below are built; `/session/*`, `/helpers/join`, `/helpers/me/offers`, 
 | `xor_checksum`, `parse_sms` | Survive; move verbatim into `codec/frame.py` and `sms/parser.py` |
 | `RESOURCE_MAP`, `URGENCY_MAP`, `LOCATION_CODE_MAP`, `LOCATION_NAME_MAP` | Survive; move into `sms/tables.py` |
 | `POST /api/v1/sms/webhook` | Survives, rewired to enqueue the pipeline instead of returning immediately |
-| `POST /api/v1/crises` | **Deleted** — folded into `POST /api/v1/requests` |
+| `POST /api/v1/crises` | **Deleted.** Removed from `main.py`; it had no callers anywhere in backend, web or android |
 | `POST /api/v1/needs` | **Deleted** — folded into `POST /api/v1/requests` |
 | `GET /api/v1/demo-state` | **Replaced** by `/api/v1/admin/stats` and `/api/v1/admin/seed` |
-| `create_response_plan()` | **Deleted as runtime.** Its greedy logic becomes the A5 solver skeleton *and* the Groq-unavailable fallback |
-| `RESOURCE_PROVIDERS` | **Deleted as runtime.** Becomes `seed_data/providers.json` |
+| `create_response_plan()` | **Deleted.** Its greedy logic lives on as the A5 solver skeleton and the Groq-unavailable fallback |
+| `RESOURCE_PROVIDERS` | **Deleted.** Superseded by `db/seed.py`, which is centre-relative |
 | `web/src/app/page.tsx` mock inventory and client-side fallback allocator | **Deleted** — the portals are WebSocket-driven |
 
 ---

@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     # deployment that matters.
     pact_secret: str = ""
 
+    # --- Seed -----------------------------------------------------------------
+    # Where the demo fixtures are planted. Unset means Bhopal, the coordinates
+    # used throughout the protocol docs. Set these on a demo machine so the
+    # helpers land near wherever the phone actually is: the radius ladder tops
+    # out at 150 km, and beyond that $geoNear returns nothing and the pipeline
+    # falls back to fixtures with geo_live=false -- silently, because the portal
+    # still shows a debate and an allocation.
+    seed_lat: float | None = None
+    seed_lon: float | None = None
+
     # --- Demo ---------------------------------------------------------------
     # Deliberately slows event emission so judges can read the deliberation.
     # Groq at ~275 tok/s is too fast to follow; this is a presentation dial.
