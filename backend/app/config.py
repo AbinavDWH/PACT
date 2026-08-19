@@ -16,9 +16,13 @@ class Settings(BaseSettings):
 
     # --- LLM ----------------------------------------------------------------
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    # Model availability is per-account. Verified present on this key;
+    # llama-3.3-70b-versatile is NOT (404 model_not_found).
+    groq_model: str = "openai/gpt-oss-120b"       # judgement: triage, arbiter
+    groq_model_fast: str = "openai/gpt-oss-20b"   # volume: advocates, narrator
     groq_timeout_s: float = 6.0
-    groq_max_inflight: int = 6
+    # Free tier is 8000 tokens/minute -- TPM binds long before RPM (1000/day).
+    groq_max_inflight: int = 4
 
     # --- Admin gate ---------------------------------------------------------
     gate_timeout_s: int = 25

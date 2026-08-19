@@ -93,7 +93,7 @@ Canonical mode is recommended for implementation.
 Example:
 
 ```text
-N|001|NGO01|RA|F|300|H|B3
+N|001|NGO01|RA|F|300|H|16
 ```
 
 Canonical messages include:
@@ -268,7 +268,7 @@ untouched request sends on a retry timer, and it is the trigger the replanning a
 Example:
 
 ```text
-S|004|PLAN101|3|A1
+S|004|PLAN101|3|0B
 ```
 
 Meaning:
@@ -290,7 +290,7 @@ Plan PLAN101 is delivered.
 Example:
 
 ```text
-R|002|CSR02|RA|F|200|A|7C
+R|002|CSR02|RA|F|200|A|06
 ```
 
 Meaning:
@@ -412,7 +412,7 @@ N|SEQ|ORG|LOC|RESOURCE|QTY|URGENCY|CRC
 Example:
 
 ```text
-N|001|NGO01|RA|F|300|H|B3
+N|001|NGO01|RA|F|300|H|16
 ```
 
 Meaning:
@@ -440,7 +440,7 @@ Decoded JSON:
   "resource": "food_kits",
   "quantity": 300,
   "urgency": "high",
-  "checksum": "B3",
+  "checksum": "16",
   "source": "sms"
 }
 ```
@@ -474,7 +474,7 @@ R|SEQ|ORG|LOC|RESOURCE|QTY|STATUS|CRC
 Example:
 
 ```text
-R|002|CSR02|RA|F|200|A|7C
+R|002|CSR02|RA|F|200|A|06
 ```
 
 Meaning:
@@ -502,7 +502,7 @@ Decoded JSON:
   "resource": "food_kits",
   "quantity": 200,
   "status": "available",
-  "checksum": "7C",
+  "checksum": "06",
   "source": "sms"
 }
 ```
@@ -647,7 +647,7 @@ A|SEQ|PLAN|ORG|RESOURCE|QTY|LOC|ETA|CRC
 Example:
 
 ```text
-A|003|PLAN001|CSR02|F|200|RA|4|D2
+A|003|PLAN001|CSR02|F|200|RA|4|3F
 ```
 
 Meaning:
@@ -677,7 +677,7 @@ Decoded JSON:
   "destination_code": "RA",
   "destination_name": "Region A",
   "eta_hours": 4,
-  "checksum": "D2",
+  "checksum": "3F",
   "source": "sms"
 }
 ```
@@ -695,7 +695,7 @@ S|SEQ|PLAN|STATUS|CRC
 Example:
 
 ```text
-S|004|PLAN101|3|A1
+S|004|PLAN101|3|0B
 ```
 
 Meaning:
@@ -716,7 +716,7 @@ Decoded JSON:
   "seq": "004",
   "plan_id": "PLAN101",
   "status": "delivered",
-  "checksum": "A1",
+  "checksum": "0B",
   "source": "sms"
 }
 ```
@@ -724,10 +724,10 @@ Decoded JSON:
 Status examples:
 
 ```text
-S|005|PLAN101|1|B2
-S|006|PLAN101|2|C3
-S|007|PLAN101|3|D4
-S|008|PLAN101|4|E5
+S|005|PLAN101|1|08
+S|006|PLAN101|2|08
+S|007|PLAN101|3|08
+S|008|PLAN101|4|00
 ```
 
 Meaning:
@@ -780,7 +780,7 @@ Quantity: 200
 Canonical replacement:
 
 ```text
-S|009|PLAN101|3|A1
+S|009|PLAN101|3|06
 ```
 
 If plan ID is unknown, use:
@@ -818,7 +818,7 @@ C|SEQ|REF|RESULT|CRC
 Example:
 
 ```text
-C|010|PLAN101|OK|F1
+C|010|PLAN101|OK|29
 ```
 
 Meaning:
@@ -847,7 +847,7 @@ Decoded JSON:
   "seq": "010",
   "reference": "PLAN101",
   "result": "ok",
-  "checksum": "F1",
+  "checksum": "29",
   "source": "sms"
 }
 ```
@@ -886,7 +886,7 @@ X|SEQ|REF|REASON|CRC
 Example:
 
 ```text
-X|011|PLAN101|BLK|A2
+X|011|PLAN101|BLK|72
 ```
 
 Meaning:
@@ -917,7 +917,7 @@ Decoded JSON:
   "seq": "011",
   "reference": "PLAN101",
   "reason": "blocked",
-  "checksum": "A2",
+  "checksum": "72",
   "source": "sms"
 }
 ```
@@ -953,13 +953,13 @@ M|SEQ|LOC|MARKER_TYPE|SEVERITY|DATA|CRC
 Example using location code:
 
 ```text
-M|012|RA|CR|9|F300|A1
+M|012|RA|CR|9|F300|4C
 ```
 
 Example using coordinates:
 
 ```text
-M|013|23.2599,77.4126|CR|9|F300|B4
+M|013|23.2599,77.4126|CR|9|F300|75
 ```
 
 Decoded JSON:
@@ -976,7 +976,7 @@ Decoded JSON:
     "resource": "food_kits",
     "quantity": 300
   },
-  "checksum": "B4",
+  "checksum": "75",
   "source": "sms"
 }
 ```
@@ -1038,7 +1038,7 @@ F300;W150
 Full marker example:
 
 ```text
-M|014|RA|CR|9|F300;W150|C2
+M|014|RA|CR|9|F300;W150|12
 ```
 
 ---
@@ -1063,13 +1063,13 @@ P|CHUNK/TOTAL|SEQ|LOC|ZONE_TYPE|POINTS|END|CRC
 Example chunk 1:
 
 ```text
-P|1/2|015|RA|FLOOD|23.250,77.400;23.270,77.420;23.260,77.440|N|E5
+P|1/2|015|RA|FLOOD|23.250,77.400;23.270,77.420;23.260,77.440|N|72
 ```
 
 Example chunk 2:
 
 ```text
-P|2/2|016|RA|FLOOD|23.240,77.430|Y|F6
+P|2/2|016|RA|FLOOD|23.240,77.430|Y|60
 ```
 
 Meaning:
@@ -1108,7 +1108,7 @@ Decoded polygon JSON:
     [77.430, 23.240]
   ],
   "complete": true,
-  "checksum": "F6",
+  "checksum": "60",
   "source": "sms"
 }
 ```
@@ -1142,7 +1142,7 @@ RT|SEQ|ORG|ROUTE_ID|POINTS|CRC
 Example:
 
 ```text
-RT|017|NGO01|RT1|23.250,77.400;23.260,77.410;23.270,77.420|A3
+RT|017|NGO01|RT1|23.250,77.400;23.260,77.410;23.270,77.420|6C
 ```
 
 Meaning:
@@ -1175,7 +1175,7 @@ Decoded JSON:
     [77.410, 23.260],
     [77.420, 23.270]
   ],
-  "checksum": "A3",
+  "checksum": "6C",
   "source": "sms"
 }
 ```
@@ -1201,7 +1201,7 @@ E|SEQ|CODE|MSG|CRC
 Example:
 
 ```text
-E|018|BAD_CRC|INVALID_CHECKSUM|F1
+E|018|BAD_CRC|INVALID_CHECKSUM|49
 ```
 
 Meaning:
@@ -1254,7 +1254,7 @@ N|001|NGO01|RA|F|300|H
 Final message:
 
 ```text
-N|001|NGO01|RA|F|300|H|B3
+N|001|NGO01|RA|F|300|H|16
 ```
 
 Checksum rules:
@@ -1364,7 +1364,7 @@ The SMS decoder must convert SMS into structured JSON before handing it to the a
 Example SMS:
 
 ```text
-N|001|NGO01|RA|F|300|H|B3
+N|001|NGO01|RA|F|300|H|16
 ```
 
 Decoder output:
@@ -1379,7 +1379,7 @@ Decoder output:
   "resource": "food_kits",
   "quantity": 300,
   "urgency": "high",
-  "checksum": "B3",
+  "checksum": "16",
   "source": "sms"
 }
 ```
@@ -1423,7 +1423,7 @@ Example input:
 Encoded output:
 
 ```text
-N|001|NGO01|RA|F|300|H|B3
+N|001|NGO01|RA|F|300|H|16
 ```
 
 ---
@@ -1477,7 +1477,7 @@ Use only if approximate location is acceptable.
 Example:
 
 ```text
-M|020|GEO:te7u2f|CR|8|F200|C3
+M|020|GEO:te7u2f|CR|8|F200|2E
 ```
 
 ### Priority 4: Hex Coordinates
@@ -1506,7 +1506,7 @@ M|SEQ|HX:HEXCOORD|MARKER_TYPE|SEVERITY|DATA|CRC
 Example:
 
 ```text
-M|021|HX:0DDBF6D82E22A1B0|CR|9|F300|A1
+M|021|HX:0DDBF6D82E22A1B0|CR|9|F300|7E
 ```
 
 Encoding rule:
@@ -1603,7 +1603,7 @@ be named as future work rather than implied.
 Safe example:
 
 ```text
-N|001|NGO01|RA|F|300|H|B3
+N|001|NGO01|RA|F|300|H|16
 ```
 
 Unsafe example:
@@ -1711,73 +1711,73 @@ S|041|7F3K|Q001|3|3C
 ### Need request
 
 ```text
-N|001|NGO01|RA|F|300|H|B3
+N|001|NGO01|RA|F|300|H|16
 ```
 
 ### Resource availability
 
 ```text
-R|002|CSR02|RA|F|200|A|7C
+R|002|CSR02|RA|F|200|A|06
 ```
 
 ### Allocation
 
 ```text
-A|003|PLAN101|CSR02|F|200|RA|4|D2
+A|003|PLAN101|CSR02|F|200|RA|4|3E
 ```
 
 ### Status update
 
 ```text
-S|004|PLAN101|3|A1
+S|004|PLAN101|3|0B
 ```
 
 ### Confirmation
 
 ```text
-C|005|PLAN101|OK|F1
+C|005|PLAN101|OK|2D
 ```
 
 ### Cancel
 
 ```text
-X|006|PLAN101|BLK|A2
+X|006|PLAN101|BLK|74
 ```
 
 ### Marker using location code
 
 ```text
-M|007|RA|CR|9|F300|A1
+M|007|RA|CR|9|F300|48
 ```
 
 ### Marker using coordinates
 
 ```text
-M|008|23.2599,77.4126|CR|9|F300|B4
+M|008|23.2599,77.4126|CR|9|F300|7F
 ```
 
 ### Polygon chunk 1
 
 ```text
-P|1/2|009|RA|FLOOD|23.250,77.400;23.270,77.420;23.260,77.440|N|E5
+P|1/2|009|RA|FLOOD|23.250,77.400;23.270,77.420;23.260,77.440|N|7F
 ```
 
 ### Polygon chunk 2
 
 ```text
-P|2/2|010|RA|FLOOD|23.240,77.430|Y|F6
+P|2/2|010|RA|FLOOD|23.240,77.430|Y|66
 ```
 
 ### Route update
 
 ```text
-RT|011|NGO01|RT1|23.250,77.400;23.260,77.410;23.270,77.420|A3
+RT|011|NGO01|RT1|23.250,77.400;23.260,77.410;23.270,77.420|6A
 ```
 
 ### Error
 
 ```text
-E|012|BAD_CRC|INVALID_CHECKSUM|F1
+E|012|BAD_CRC|INVALID_CHECKSUM|43
 ```
 
 ---
@@ -1799,7 +1799,7 @@ The simulator should allow users to:
 Example simulator input:
 
 ```text
-N|001|NGO01|RA|F|300|H|B3
+N|001|NGO01|RA|F|300|H|16
 ```
 
 Expected simulator result:
@@ -1994,13 +1994,13 @@ G|014|N001|2101Z542A|728B2FBADG|2C
 Recommended demo need message (organization to organization):
 
 ```text
-N|001|NGO01|RA|F|300|H|B3
+N|001|NGO01|RA|F|300|H|16
 ```
 
 Recommended demo marker message:
 
 ```text
-M|008|23.2599,77.4126|CR|9|F300|B4
+M|008|23.2599,77.4126|CR|9|F300|7F
 ```
 
 This keeps the SMS fallback simple, privacy-aware, demo-friendly, and feasible within a 24-hour hackathon.

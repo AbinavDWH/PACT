@@ -27,7 +27,7 @@ The design is specified across four files. Read them in this order.
 | Backend | Python, FastAPI |
 | Database | MongoDB with `2dsphere` geospatial indexes |
 | Agents | Python `asyncio`, in-process, no Redis |
-| LLM | Groq API, `llama-3.3-70b-versatile` |
+| LLM | Groq API, `openai/gpt-oss-120b` (+ `gpt-oss-20b` for volume) |
 | Live updates | WebSocket |
 | Maps | OpenStreetMap and MapLibre, offline tile caching |
 

@@ -1,0 +1,233 @@
+{
+  "_comment": "Cross-language parity fixtures. Python (pytest) and Kotlin (JVM unit test) both run these against the SAME file. Any encoder divergence fails in CI instead of at 3 a.m. Regenerate with backend/scripts/gen_vectors.py.",
+  "schema_version": 1,
+  "vectors": [
+    {
+      "name": "ex1_collapse_trapped_critical",
+      "kind": "Q",
+      "selection": {
+        "situation": "5",
+        "people": "2",
+        "injury": "2",
+        "mobility": "3",
+        "urgency": "C",
+        "needs": [
+          "water_kits",
+          "medical_kits",
+          "rescue_team"
+        ],
+        "vulnerability": 0
+      },
+      "lat": 23.25991,
+      "lon": 77.41263,
+      "uid": "7F3K",
+      "seq": 1,
+      "expected_sms": "Q|001|7F3K|15223C03Q0|6QR6VFBQ33|7F"
+    },
+    {
+      "name": "ex2_flood_roof_family_toddler",
+      "kind": "Q",
+      "selection": {
+        "situation": "0",
+        "people": "3",
+        "injury": "0",
+        "mobility": "2",
+        "urgency": "H",
+        "needs": [
+          "food_kits",
+          "water_kits",
+          "infant_kits"
+        ],
+        "vulnerability": [
+          "child_under_5"
+        ]
+      },
+      "lat": 23.261,
+      "lon": 77.409,
+      "uid": "A19P",
+      "seq": 2,
+      "expected_sms": "Q|002|A19P|10302H0SJ1|6QR9WFBPT0|71"
+    },
+    {
+      "name": "ex3_displacement_site_elderly",
+      "kind": "Q",
+      "selection": {
+        "situation": "A",
+        "people": "8",
+        "injury": "0",
+        "mobility": "0",
+        "urgency": "M",
+        "needs": [
+          "water_kits",
+          "tents",
+          "blankets",
+          "hygiene_kits"
+        ],
+        "vulnerability": [
+          "elderly"
+        ]
+      },
+      "lat": 28.6139,
+      "lon": 77.209,
+      "uid": "C4M2",
+      "seq": 3,
+      "expected_sms": "Q|003|C4M2|1A800M0364|728B2FBADG|65"
+    },
+    {
+      "name": "ex4_ngo_multi_resource",
+      "kind": "G",
+      "selection": {
+        "orgtype": "1",
+        "resources": [
+          "food_kits",
+          "water_kits",
+          "medical_kits",
+          "hygiene_kits"
+        ],
+        "capacity": "5",
+        "radius": "4",
+        "eta": "2",
+        "availability": "A"
+      },
+      "uid": "N001",
+      "seq": 14,
+      "expected_sms": "G|014|N001|2101Z542A|728B2FBADG|2C",
+      "lat": 28.6139,
+      "lon": 77.209
+    },
+    {
+      "name": "ex5_hospital_location_code",
+      "kind": "G",
+      "selection": {
+        "orgtype": "4",
+        "resources": [
+          "medical_kits",
+          "medical_teams"
+        ],
+        "capacity": "1",
+        "radius": "3",
+        "eta": "1",
+        "availability": "L"
+      },
+      "uid": "H004",
+      "seq": 15,
+      "expected_sms": "G|015|H004|2400C131L|RA|26",
+      "location_code": "RA"
+    },
+    {
+      "name": "ex6_ack",
+      "kind": "C",
+      "uid": "7F3K",
+      "seq": 31,
+      "ref": "Q001",
+      "state": 1,
+      "eta_bucket": 3,
+      "expected_sms": "C|031|7F3K|Q001|1|3|66"
+    },
+    {
+      "name": "ex7_status_delivered",
+      "kind": "S",
+      "uid": "7F3K",
+      "seq": 41,
+      "ref": "Q001",
+      "status": 3,
+      "expected_sms": "S|041|7F3K|Q001|3|3C"
+    },
+    {
+      "name": "edge_no_needs_min_selection",
+      "kind": "Q",
+      "selection": {
+        "situation": "Z",
+        "people": "0",
+        "injury": "9",
+        "mobility": "9",
+        "urgency": "L",
+        "needs": [],
+        "vulnerability": 0
+      },
+      "lat": 0.0,
+      "lon": 0.0,
+      "uid": "0000",
+      "seq": 999,
+      "expected_sms": "Q|999|0000|1Z099L0000|5CWG0APSW0|0C"
+    },
+    {
+      "name": "edge_all_needs_all_vulnerabilities",
+      "kind": "Q",
+      "selection": {
+        "situation": "1",
+        "people": "9",
+        "injury": "5",
+        "mobility": "6",
+        "urgency": "C",
+        "needs": [
+          "food_kits",
+          "water_kits",
+          "medical_kits",
+          "medical_teams",
+          "tents",
+          "blankets",
+          "hygiene_kits",
+          "rescue_team",
+          "evac_transport",
+          "power_kits",
+          "infant_kits",
+          "search_request"
+        ],
+        "vulnerability": [
+          "child_under_5",
+          "pregnant_nursing",
+          "elderly",
+          "disability",
+          "chronic_illness"
+        ]
+      },
+      "lat": -33.8688,
+      "lon": 151.2093,
+      "uid": "ZZZZ",
+      "seq": 500,
+      "expected_sms": "Q|500|ZZZZ|11956C35RV|3CB40JPW9U|08"
+    },
+    {
+      "name": "edge_negative_coords_with_accuracy",
+      "kind": "Q",
+      "selection": {
+        "situation": "2",
+        "people": "4",
+        "injury": "1",
+        "mobility": "0",
+        "urgency": "H",
+        "needs": [
+          "medical_kits"
+        ],
+        "vulnerability": 0
+      },
+      "lat": -8.4095,
+      "lon": -34.9,
+      "uid": "SW01",
+      "seq": 77,
+      "accuracy_m": 8,
+      "expected_sms": "Q|077|SW01|12410H0040|4UVKA8MZZK1|2C"
+    },
+    {
+      "name": "edge_extreme_south_west",
+      "kind": "Q",
+      "selection": {
+        "situation": "3",
+        "people": "1",
+        "injury": "0",
+        "mobility": "0",
+        "urgency": "M",
+        "needs": [
+          "water_kits"
+        ],
+        "vulnerability": 0
+      },
+      "lat": -89.99999,
+      "lon": -179.99999,
+      "uid": "EDGE",
+      "seq": 1,
+      "expected_sms": "Q|001|EDGE|13100M0020|0000100001|1F"
+    }
+  ]
+}

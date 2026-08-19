@@ -17,6 +17,9 @@ from app.agents import scripted
 from app.bus import gate
 from app.bus.eventbus import bus
 from app.config import get_settings
+from app.db import mongo
+from app.db import repo_events
+from app.db import seed as db_seed
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -88,6 +91,28 @@ def runs():
     return {"runs": _runs, "count": len(_runs)}
 
 
+@router.post("/seed")
+async def reseed():
+    """Idempotent demo reset."""
+    result = await db_seed.seed(reset=True)
+    check = await db_seed.verify_lng_lat()
+    _runs.clear()
+    return {**result, "geo_check": check}
+
+
+@router.get("/requests")
+async def list_requests(limit: int = 50):
+    """Hydrates the All Requests view on a fresh page load, from the persisted
+    transcript rather than whatever the socket has seen this session."""
+    return {"traces": await repo_events.recent_traces(limit)}
+
+
+@router.get("/requests/{trace_id}/trace")
+async def get_trace(trace_id: str):
+    events = await repo_events.trace(trace_id)
+    return {"trace_id": trace_id, "count": len(events), "events": events}
+
+
 @router.get("/stats")
 def stats():
     s = get_settings()
@@ -96,7 +121,8 @@ def stats():
         "committed": sum(1 for r in _runs if r.get("status") == "committed"),
         "subscribers": bus.subscriber_count(),
         "pending_decisions": gate.pending_ids(),
-        "mongo": s.mongo_enabled,
+        "mongo_configured": s.mongo_enabled,
+        "mongo_connected": mongo.is_healthy(),
         "groq": s.groq_enabled,
         "autopilot": s.autopilot,
         "gate_timeout_s": s.gate_timeout_s,

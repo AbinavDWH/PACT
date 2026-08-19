@@ -385,7 +385,7 @@ be killed by an API.**
 3. Organization web portal
 4. FastAPI backend
 5. In-process asynchronous multi-agent engine
-6. Groq API — Llama 3.3 70B
+6. Groq API — `openai/gpt-oss-120b`
 7. MongoDB with `2dsphere` geospatial indexes
 8. SMS fallback channel
 9. OpenStreetMap and MapLibre, with offline tile caching
@@ -401,7 +401,7 @@ be killed by an API.**
 | Backend | Python, FastAPI |
 | Database | **MongoDB** with `2dsphere` |
 | Agents | Python `asyncio`, in-process |
-| LLM | **Groq API, `llama-3.3-70b-versatile`** |
+| LLM | **Groq API, `openai/gpt-oss-120b`** (`gpt-oss-20b` for high-volume agents) |
 | Agent bus | **In-process `asyncio` pub/sub. No Redis** |
 | Live updates | WebSocket |
 | Maps | OpenStreetMap and MapLibre |
@@ -414,7 +414,7 @@ be killed by an API.**
 | PostgreSQL + PostGIS | MongoDB with `2dsphere` | One service instead of two, no migrations, no schema ceremony, and `$geoNear` covers every spatial query needed. PostGIS is more powerful than this project requires |
 | Redis agent bus | In-process `asyncio` pub/sub | Agents run in one FastAPI process, so a network queue between them adds infrastructure, latency, and debugging surface for no benefit. Deliberation persists to MongoDB, which also gives replay for free |
 | Keycloak | Static credentials | Identity infrastructure is invisible to judges and costs hours |
-| Unspecified Python workers | Groq, Llama 3.3 70B | Chosen for very high tokens per second, which is what makes streamed deliberation feel live |
+| Unspecified Python workers | Groq, `openai/gpt-oss-120b` | Chosen for very high tokens per second, which is what makes streamed deliberation feel live. Model id verified against the account -- `llama-3.3-70b-versatile` is not available on free-tier keys |
 | Free-text field reports | Option selection and a compressed code | Smaller, faster, unambiguous, language-independent, and it cannot leak personal data |
 
 These are not regressions. Each removes a component that would have consumed build time without
@@ -831,7 +831,11 @@ control of every automated decision.
 - One wire format serves both HTTP and SMS.
 - MongoDB with `2dsphere` replaces PostgreSQL and PostGIS.
 - The agent bus is in-process `asyncio`. Redis is not used.
-- Agents run on Groq with `llama-3.3-70b-versatile`.
+- Agents run on Groq with `openai/gpt-oss-120b` for judgement and `openai/gpt-oss-20b` for
+  high-volume calls. Model ids were verified against the account with `models.list()`;
+  `llama-3.3-70b-versatile` is not available on free-tier keys.
+- Free-tier Groq is capped at 8000 tokens per minute, which allows roughly 4 pipeline runs per
+  minute. Ample for a demo, but it rules out load testing against the live API.
 - The LLM never produces a number that reaches the database.
 - Every LLM agent has a deterministic fallback.
 - Seeker identity and exact position unlock only on commitment and acceptance.

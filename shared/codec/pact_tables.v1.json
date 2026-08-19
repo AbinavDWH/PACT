@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "_comment": "Single source of truth for the PACT-C1 codec. Human-readable spec is codec.md. Python loads this at import; Kotlin syncs it into app assets via a Gradle copy task; the web SMS simulator imports it directly. Bit positions are FROZEN - append new bits, never renumber.",
+
+  "alphabet": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+
+  "layouts": {
+    "Q": {
+      "version_char": "1",
+      "length": 10,
+      "fields": [
+        { "name": "version",       "chars": 1 },
+        { "name": "situation",     "chars": 1 },
+        { "name": "people",        "chars": 1 },
+        { "name": "injury",        "chars": 1 },
+        { "name": "mobility",      "chars": 1 },
+        { "name": "urgency",       "chars": 1 },
+        { "name": "needs",         "chars": 3 },
+        { "name": "vulnerability", "chars": 1 }
+      ]
+    },
+    "G": {
+      "version_char": "2",
+      "length": 9,
+      "fields": [
+        { "name": "version",      "chars": 1 },
+        { "name": "orgtype",      "chars": 1 },
+        { "name": "resources",    "chars": 3 },
+        { "name": "capacity",     "chars": 1 },
+        { "name": "radius",       "chars": 1 },
+        { "name": "eta",          "chars": 1 },
+        { "name": "availability", "chars": 1 }
+      ]
+    }
+  },
+
+  "dimensions": {
+    "situation": {
+      "kind": "enum",
+      "values": {
+        "0": "flood",
+        "1": "earthquake",
+        "2": "fire",
+        "3": "cyclone_storm",
+        "4": "landslide",
+        "5": "building_collapse",
+        "6": "conflict_violence",
+        "7": "epidemic_outbreak",
+        "8": "industrial_chemical",
+        "9": "accident_trauma",
+        "A": "displaced_no_shelter",
+        "B": "heat_cold_wave",
+        "Z": "other_unknown"
+      }
+    },
+    "people": {
+      "kind": "bucket",
+      "values": {
+        "0": { "label": "1",       "rep": 1 },
+        "1": { "label": "2",       "rep": 2 },
+        "2": { "label": "3-4",     "rep": 3 },
+        "3": { "label": "5-9",     "rep": 7 },
+        "4": { "label": "10-19",   "rep": 14 },
+        "5": { "label": "20-49",   "rep": 30 },
+        "6": { "label": "50-99",   "rep": 70 },
+        "7": { "label": "100-199", "rep": 150 },
+        "8": { "label": "200-499", "rep": 300 },
+        "9": { "label": "500+",    "rep": 750 },
+        "A": { "label": "unknown", "rep": 5 }
+      }
+    },
+    "injury": {
+      "kind": "enum",
+      "rank": { "0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "9": 1 },
+      "values": {
+        "0": "none",
+        "1": "minor",
+        "2": "serious_stable",
+        "3": "critical_life_threatening",
+        "4": "unconscious",
+        "5": "fatality_present",
+        "9": "unknown"
+      }
+    },
+    "mobility": {
+      "kind": "enum",
+      "trapped": ["3", "4", "5", "6"],
+      "values": {
+        "0": "free_and_mobile",
+        "1": "free_but_immobile",
+        "2": "stranded_cannot_leave",
+        "3": "trapped_in_debris",
+        "4": "trapped_by_water",
+        "5": "trapped_in_vehicle",
+        "6": "underground_collapsed",
+        "9": "unknown"
+      }
+    },
+    "urgency": {
+      "kind": "enum",
+      "weight": { "L": 1, "M": 2, "H": 3, "C": 4 },
+      "values": { "L": "low", "M": "medium", "H": "high", "C": "critical" }
+    },
+    "needs": {
+      "kind": "bitfield",
+      "bits": 12,
+      "chars": 3,
+      "map": [
+        { "bit": 0,  "code": "F", "key": "food_kits",      "factor": 1.0,  "flat": false },
+        { "bit": 1,  "code": "W", "key": "water_kits",     "factor": 1.0,  "flat": false },
+        { "bit": 2,  "code": "M", "key": "medical_kits",   "factor": 0.5,  "flat": false, "double_if_injury_ge": 3 },
+        { "bit": 3,  "code": "D", "key": "medical_teams",  "factor": 1.0,  "flat": true,  "double_if_injury_ge": 3 },
+        { "bit": 4,  "code": "T", "key": "tents",          "factor": 0.25, "flat": false },
+        { "bit": 5,  "code": "B", "key": "blankets",       "factor": 1.0,  "flat": false },
+        { "bit": 6,  "code": "H", "key": "hygiene_kits",   "factor": 0.5,  "flat": false },
+        { "bit": 7,  "code": "X", "key": "rescue_team",    "factor": 1.0,  "flat": true },
+        { "bit": 8,  "code": "V", "key": "evac_transport", "factor": 0.1,  "flat": false },
+        { "bit": 9,  "code": "P", "key": "power_kits",     "factor": 0.1,  "flat": false },
+        { "bit": 10, "code": "I", "key": "infant_kits",    "factor": 1.0,  "flat": false, "per_child_flag": true },
+        { "bit": 11, "code": "S", "key": "search_request", "factor": 1.0,  "flat": true }
+      ]
+    },
+    "vulnerability": {
+      "kind": "bitfield",
+      "bits": 5,
+      "chars": 1,
+      "map": [
+        { "bit": 0, "key": "child_under_5" },
+        { "bit": 1, "key": "pregnant_nursing" },
+        { "bit": 2, "key": "elderly" },
+        { "bit": 3, "key": "disability" },
+        { "bit": 4, "key": "chronic_illness" }
+      ]
+    },
+
+    "orgtype": {
+      "kind": "enum",
+      "values": {
+        "0": "government",
+        "1": "ngo",
+        "2": "ingo_un",
+        "3": "csr_corporate",
+        "4": "hospital_clinic",
+        "5": "volunteer_group",
+        "6": "faith_based",
+        "7": "logistics_transport",
+        "8": "military_civil_defence",
+        "9": "individual_volunteer",
+        "A": "other"
+      }
+    },
+    "resources": { "kind": "alias", "of": "needs" },
+    "capacity": {
+      "kind": "bucket",
+      "values": {
+        "0": { "label": "1-9",       "rep": 5 },
+        "1": { "label": "10-24",     "rep": 15 },
+        "2": { "label": "25-49",     "rep": 35 },
+        "3": { "label": "50-99",     "rep": 75 },
+        "4": { "label": "100-199",   "rep": 150 },
+        "5": { "label": "200-499",   "rep": 300 },
+        "6": { "label": "500-999",   "rep": 750 },
+        "7": { "label": "1000-2499", "rep": 1500 },
+        "8": { "label": "2500-4999", "rep": 3500 },
+        "9": { "label": "5000+",     "rep": 7500 },
+        "A": { "label": "unknown",   "rep": 0 }
+      }
+    },
+    "radius": {
+      "kind": "bucket",
+      "values": {
+        "0": { "label": "<2 km",    "rep": 2 },
+        "1": { "label": "5 km",     "rep": 5 },
+        "2": { "label": "10 km",    "rep": 10 },
+        "3": { "label": "25 km",    "rep": 25 },
+        "4": { "label": "50 km",    "rep": 50 },
+        "5": { "label": "100 km",   "rep": 100 },
+        "6": { "label": "250 km",   "rep": 250 },
+        "7": { "label": "500 km",   "rep": 500 },
+        "8": { "label": "1000 km",  "rep": 1000 },
+        "9": { "label": "national", "rep": 99999 }
+      }
+    },
+    "eta": {
+      "kind": "bucket",
+      "values": {
+        "0": { "label": "<1 h",    "rep": 1 },
+        "1": { "label": "1-2 h",   "rep": 2 },
+        "2": { "label": "2-4 h",   "rep": 4 },
+        "3": { "label": "4-8 h",   "rep": 8 },
+        "4": { "label": "8-12 h",  "rep": 12 },
+        "5": { "label": "12-24 h", "rep": 24 },
+        "6": { "label": "24-48 h", "rep": 48 },
+        "7": { "label": "48-72 h", "rep": 72 },
+        "8": { "label": "3-7 d",   "rep": 168 },
+        "9": { "label": ">7 d",    "rep": 336 }
+      }
+    },
+    "availability": {
+      "kind": "enum",
+      "values": { "A": "available", "L": "limited", "U": "unavailable" }
+    }
+  },
+
+  "accuracy": {
+    "0": 5, "1": 10, "2": 25, "3": 50, "4": 100, "5": 500, "6": 1000, "9": null
+  },
+
+  "status_codes": {
+    "0": "assigned",
+    "1": "dispatched",
+    "2": "in_transit",
+    "3": "delivered",
+    "4": "blocked",
+    "5": "cancelled",
+    "6": "self_resolved",
+    "7": "still_waiting"
+  },
+
+  "location_codes": {
+    "RA": "Region A",
+    "RB": "Region B",
+    "RC": "Region C",
+    "D1": "District North",
+    "D2": "District South"
+  }
+}

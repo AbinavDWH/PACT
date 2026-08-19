@@ -551,12 +551,29 @@ The `$expr` guard makes the check-and-reserve atomic in a single round trip.
 
 ### 5.1 Client
 
+> **Model availability is per-account. Verify with `client.models.list()` before
+> assuming an id exists.** `llama-3.3-70b-versatile` returns 404 `model_not_found`
+> on current free-tier keys and is not used by this project.
+
+Verified working on this project's key, benchmarked on the real A2 Triage prompt:
+
+| Model | Latency | Throughput | JSON mode | Use |
+|---|---|---|---|---|
+| `openai/gpt-oss-120b` | 1.26 s | 114 tok/s | yes | **Default.** Judgement: A2 triage, A6 arbiter |
+| `openai/gpt-oss-20b` | 0.87 s | 253 tok/s | yes | **Fast.** Volume: A4 advocates, A9 narrator |
+| `groq/compound-mini` | 1.29 s | 284 tok/s | yes | Viable alternative |
+| `qwen/qwen3.6-27b` | — | — | **fails** | Rejected: JSON validation error |
+
+All three working models produced near-identical triage output on the same input,
+which is the reliability signal that matters more than any single benchmark.
+
 ```python
 from groq import AsyncGroq
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "openai/gpt-oss-120b"        # judgement
+MODEL_FAST = "openai/gpt-oss-20b"    # volume
 client = AsyncGroq(api_key=os.environ["GROQ_API_KEY"], max_retries=0, timeout=8.0)
-_sem = asyncio.Semaphore(6)          # global in-flight cap
+_sem = asyncio.Semaphore(4)          # global in-flight cap; TPM-bound, see 5.3
 
 
 async def call_json(system, user, schema, *, agent, trace_id,
@@ -607,13 +624,21 @@ async def call_json(system, user, schema, *, agent, trace_id,
 Approximate per request: triage 350 tokens, advocates 600, arbiter 400, narrator 300 — about
 **4 calls and 1.7k tokens per request**.
 
-Free-tier limits on `llama-3.3-70b-versatile` are on the order of tens of requests per minute and
-low tens of thousands of tokens per minute; **confirm the current numbers in the Groq console, as
-they change**. Read the `x-ratelimit-*` response headers into a gauge and shed to the deterministic
-fallback when remaining requests drop below three.
+Measured free-tier limits on this project's key (from `x-ratelimit-*` response headers):
 
-At roughly 4 calls per request, a sustained 7 requests per minute is comfortable, and a scripted
-10-request demo burst fits easily.
+| Limit | Value | Implication |
+|---|---|---|
+| Requests per day | 1000 | ~250 full pipeline runs. Not the constraint |
+| **Tokens per minute** | **8000** | **The binding constraint** |
+| Token reset | ~600 ms rolling | Recovers fast; bursts are survivable |
+
+At ~1.7k tokens per request, **8000 TPM allows roughly 4 pipeline runs per minute sustained**. That
+is ample for a demo — you will never fire ten requests in sixty seconds on stage — but it rules out
+load testing against the live API, and it is why the in-flight semaphore is 4 rather than 6.
+
+Read the `x-ratelimit-remaining-tokens` header into a gauge and shed to the deterministic fallback
+when it drops below one request's budget. Limits differ per account and change over time: re-read
+the headers rather than trusting this table.
 
 ### 5.4 Keeping the Demo Fast
 
