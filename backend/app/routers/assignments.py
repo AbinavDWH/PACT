@@ -25,6 +25,7 @@ from app.db import repo_matches, repo_requests
 from app.db.mongo import get_db
 from app.deps import issue
 from app.notify import channels, dispatcher
+from app.privacy import crypto
 from app.privacy import policy as privacy_policy
 from app.privacy import redact
 
@@ -88,9 +89,14 @@ async def _request_for(request_id: str | None) -> dict[str, Any]:
         return {}
     seeker = await db.seekers.find_one({"uid": doc.get("seeker_uid")}) or {}
     coords = (doc.get("loc") or {}).get("coordinates") or [None, None]
+    # Decrypt here, redact after. The store holds ciphertext, this read path
+    # decrypts, and A7 decides who is allowed to see the result. Returning
+    # `name_enc` raw instead would hand an authorized helper an unreadable
+    # "enc:gAAAA..." blob while looking like it worked.
     return {
         "lat": coords[1], "lon": coords[0],
-        "name": seeker.get("name_enc"), "contact": seeker.get("phone_enc"),
+        "name": crypto.decrypt(seeker.get("name_enc")),
+        "contact": crypto.decrypt(seeker.get("phone_enc")),
         "uid": doc.get("seeker_uid"),
         "need": doc.get("need"), "quantity": doc.get("quantity"),
         "urgency": doc.get("urgency"),

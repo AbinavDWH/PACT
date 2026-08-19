@@ -12,7 +12,7 @@ import hmac
 import secrets
 import time
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 from app.config import get_settings
 
@@ -69,6 +69,28 @@ async def current_org(authorization: str | None = Header(default=None)) -> dict:
 async def optional_admin(authorization: str | None = Header(default=None)) -> dict | None:
     """For endpoints that stay open in demo mode but want to record who acted."""
     return _resolve(authorization)
+
+
+async def _current_device(authorization: str | None = Header(default=None)) -> dict:
+    """A signed-in app user -- seeker or helper. The device holds this token
+    from sign-up until it explicitly signs out."""
+    if not get_settings().require_auth:
+        return {"sub": "anonymous", "role": "seeker", "org_id": None}
+    claims = _resolve(authorization)
+    if claims is None or claims["role"] not in ("seeker", "helper"):
+        raise HTTPException(status_code=401, detail="device session required")
+    return claims
+
+
+current_device = Depends(_current_device)
+
+
+def revoke(token: str | None) -> bool:
+    """Sign-out. The account survives -- the UID is derived from the device, so
+    signing back in restores the same identity."""
+    if not token:
+        return False
+    return _TOKENS.pop(token.removeprefix("Bearer ").strip(), None) is not None
 
 
 def verify_ws_token(token: str | None, role: str = "admin") -> dict | None:

@@ -93,6 +93,25 @@ KEYS: dict[str, frozenset[str]] = {
     "delivery_code": frozenset({"delivery_code"}),
 }
 
+# Keys that are only sensitive inside a particular container.
+#
+# `name` cannot go in KEYS above: an allocation's `name` is the *helper*
+# organization, which the helper is entitled to see, while `seeker.name` is the
+# person they are being sent to. Same key, two different subjects. Scoping by
+# the enclosing container is what separates them.
+#
+# This was a live leak: once sign-up existed and seekers actually had names,
+# the pre-acceptance assignment list returned "Anita Sharma" in full. While the
+# field was always null the tests passed vacuously.
+
+SCOPED_KEYS: dict[str, dict[str, frozenset[str]]] = {
+    "seeker_name": {
+        "seeker": frozenset({"name"}),
+        "request": frozenset({"name"}),
+        "seekers": frozenset({"name"}),
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Where each field actually appears
 # ---------------------------------------------------------------------------

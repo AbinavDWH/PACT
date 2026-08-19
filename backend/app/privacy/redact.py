@@ -171,6 +171,31 @@ def _walk_keys(node: Any, keys: frozenset[str], fn, depth: int = 0) -> int:
     return hits
 
 
+def _walk_scoped(node: Any, container: str, keys: frozenset[str], fn,
+                 depth: int = 0, inside: bool = False) -> int:
+    """Apply fn to `keys`, but only inside a dict reached through `container`.
+
+    `name` means the helper organization on an allocation and the rescue target
+    under `seeker`. Only the enclosing container tells them apart.
+    """
+    if depth > 12:
+        return 0
+    hits = 0
+    if isinstance(node, dict):
+        if inside:
+            for k in [k for k in node if k in keys]:
+                hits += fn(node, k)
+        for k, v in list(node.items()):
+            if isinstance(v, (dict, list)):
+                hits += _walk_scoped(v, container, keys, fn, depth + 1,
+                                     inside or k == container)
+    elif isinstance(node, list):
+        for v in node:
+            if isinstance(v, (dict, list)):
+                hits += _walk_scoped(v, container, keys, fn, depth + 1, inside)
+    return hits
+
+
 def project(obj: dict[str, Any], audience: str, *,
             owned: bool = False, counts: dict[str, int] | None = None) -> dict[str, Any]:
     """Apply the field matrix to one payload dict. Returns a redacted copy.
@@ -196,6 +221,8 @@ def project(obj: dict[str, Any], audience: str, *,
         keys = policy.KEYS.get(field)
         if keys:
             n += _walk_keys(out, keys, fn)
+        for container, scoped in policy.SCOPED_KEYS.get(field, {}).items():
+            n += _walk_scoped(out, container, scoped, fn)
         for path in policy.PATHS.get(field, ()):
             n += _apply(out, _steps(path), fn)
         if counts is not None and n:

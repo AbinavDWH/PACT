@@ -85,6 +85,7 @@ config block.
 
 ## Status
 
-- `codec/` — **written, never compiled.** No JDK was available on the build
-  machine. Expect to fix compile errors on the first `gradlew test`.
-- `app/` — not started.
+- `codec/` — **compiles and passes.** `gradle :codec:test --rerun-tasks` prints
+  `parity OK: 11 vectors`. (This section previously said "written, never
+  compiled"; that was true before the JDK landed on `E:`.)
+- `app/` — see below.

@@ -67,6 +67,12 @@ POST  /api/v1/sms/simulate             portal simulator
 WS    /ws/agents                       admin firehose, token-authenticated
 WS    /ws/org                          org slice, token-authenticated, A7-redacted
 GET   /api/v1/sms/outbox               what would have been sent (no gateway)
+POST  /api/v1/session/signup           one screen, once; issues uid + token
+GET   /api/v1/session/me               restores a persisted device session
+POST  /api/v1/session/signout
+POST  /api/v1/helpers/join             group code -> org_id; bad code never blocks
+POST  /api/v1/helpers/leave
+PUT   /api/v1/helpers/me/offers        a volunteer's own inventory into `offers`
 POST  /api/v1/assignments/{id}/accept  THE privacy.reveal trigger
 POST  /api/v1/assignments/{id}/decline triggers A11
 POST  /api/v1/assignments/{id}/status  feeds A10 delivery-code check
@@ -350,15 +356,11 @@ exist.
 
 ### Not started
 
-- **Android app** (`android/app/`). Only the codec library exists.
-- **Organization portal** (`/org/*` routes).
+- **Android app** (`android/app/`). Only the codec library exists — verified:
+  `gradle :codec:test --rerun-tasks` prints `parity OK: 11 vectors`.
+- **Organization portal UI** (`/org/*` Next.js routes). The backend and the
+  redacted socket are done.
 - **Offline MapLibre.**
-- **Seeker/helper sign-up endpoints** (`/api/v1/session/signup`,
-  `/helpers/join`, `/helpers/me/offers`). Assignment accept/decline/status
-  **are** implemented. Because there is no sign-up, `seekers` documents carry
-  no `name_enc`/`phone_enc`, so a post-acceptance reveal currently returns
-  `name: null` — the *transition* is real, the data behind it is not yet
-  captured.
 - **Backup demo video.** Non-negotiable before presenting.
 
 ### Other

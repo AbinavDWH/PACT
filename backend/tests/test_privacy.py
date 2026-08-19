@@ -156,6 +156,26 @@ def test_a_pending_assignment_row_does_not_leak_contact_or_code():
     assert "9876543210" not in _blob(out)
 
 
+def test_a_pending_assignment_row_does_not_leak_the_seekers_name():
+    """Regression. `seeker.name` cannot be caught by the global key list --
+    an allocation's `name` is the helper organization, which the helper IS
+    entitled to see. Only the enclosing container separates them.
+
+    This leaked in production the moment sign-up existed and seekers actually
+    had names. While the field was always null, the surrounding tests passed
+    without exercising anything."""
+    out = redact.project(_assignment_row(), "helper_pre", owned=True)
+    assert "Anita" not in _blob(out)
+    assert "Sharma" not in _blob(out)
+
+
+def test_the_helpers_own_organization_name_survives_the_same_projection():
+    """The other half: over-redacting `name` everywhere would blank the
+    helper's own allocation and make the assignment unusable."""
+    out = redact.project(_assignment_row(), "helper_pre", owned=True)
+    assert out["allocation"]["name"] == "Sanjeevani Relief Trust"
+
+
 def test_the_same_row_opens_up_after_acceptance():
     out = redact.project(_assignment_row(), "helper_post", owned=True)
     assert out["seeker"]["lat"] == EXACT_LAT

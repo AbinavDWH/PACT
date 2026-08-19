@@ -29,6 +29,7 @@ from app.llm import groq_client
 from app.routers import admin as admin_router
 from app.routers import assignments as assignments_router
 from app.routers import ingest as ingest_router
+from app.routers import session as session_router
 from app.routers import ws as ws_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -84,6 +85,7 @@ app.include_router(admin_router.public)
 app.include_router(admin_router.router)
 app.include_router(ingest_router.router)
 app.include_router(assignments_router.router)
+app.include_router(session_router.router)
 
 
 @app.get("/")
