@@ -1,7 +1,7 @@
-import { ActivityEntry, HubRequest, Plan } from "./types";
+import { ActivityEntry, HubRequest, LiveLocation, Plan } from "./types";
 
-// HARDCODED TO YOUR NETWORK IP FOR HACKATHON DEMO
-const API_URL = "http://localhost:8000"; 
+// Backend IP — same one the Android app uses
+const API_URL = "http://localhost:8000";
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
@@ -45,4 +45,9 @@ export function listPlans() {
 
 export function listActivity(limit = 50) {
   return http<{ activity: ActivityEntry[] }>(`/api/v1/agent-activity?limit=${limit}`);
+}
+
+// NEW: live field-worker GPS positions
+export function listLocations() {
+  return http<{ locations: LiveLocation[] }>("/api/v1/locations");
 }

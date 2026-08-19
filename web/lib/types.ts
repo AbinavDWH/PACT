@@ -35,7 +35,6 @@ export interface HubRequest {
   plan_id?: string | null;
   status_code?: number | null;
 
-  // GPS coordinates for the Chennai map
   latitude?: number | null;
   longitude?: number | null;
 
@@ -45,6 +44,14 @@ export interface HubRequest {
   created_at: string;
   reviewed_at?: string | null;
   reject_reason?: string | null;
+}
+
+// NEW: live field-worker GPS from Android app
+export interface LiveLocation {
+  organization_id: string;
+  latitude: number;
+  longitude: number;
+  updated_at: string;
 }
 
 export interface Allocation {
