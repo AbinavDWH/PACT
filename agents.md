@@ -150,6 +150,19 @@ System prompt:
 > allocations. Do NOT choose providers. Do NOT inflate everything to T1; the tiers must
 > discriminate. Output JSON only, matching the given schema. Keep `reasoning` under 40 words.
 
+**Invariants are enforced in Python after validation**, because these fields are individually valid
+and only jointly wrong — Pydantic cannot see the contradiction:
+
+| Invariant | Why |
+|---|---|
+| `tier == T1` ⇒ `life_threat` | T1 is *defined* as life threat within 6 h |
+| `life_threat` ⇒ `tier ≥ T2` | A life threat cannot sit in T3/T4 |
+| `tier == T1` ⇒ `time_to_harm_hours ≤ 6` | Same definition |
+| `severity ≥ tier floor` (80/55/30/0) | A T1 at severity 20 sorts below a T3 at 60 in every severity-ordered view |
+
+Corrections are published as `error{code: TRIAGE_INCONSISTENT}` carrying was/now/why per field.
+Repairing silently would let the portal display output the model never produced.
+
 ### 2.3 A3 — Geo Candidate Finder
 
 Deterministic. See §4.3 for the exact aggregation pipeline. Emits an `agent.tool_call` event so the
@@ -194,14 +207,31 @@ System prompt:
 
 ### 2.5 A5 — Allocation Solver (deterministic)
 
+**As built** — `app/agents/solver.py`. Weights are named constants, not literals in the pipeline:
+
 ```python
-score = (w1 * (1 / eta_minutes)
-       + w2 * fit_from_a4
-       + w3 * reliability
-       + w4 * stock_headroom
-       - w5 * capacity_load
-       - w6 * blocker_penalty)
+candidate = (0.30 * speed          # 1 - eta/360, clamped
+           + 0.25 * fit/100        # from A4
+           + 0.15 * reliability    # from the organization document
+           + 0.15 * headroom       # min(free/demand, 1)
+           - 0.20 * capacity_load
+           - 0.15 * blockers/3)    # len(A4 risk_flags)
+
+option    = (0.45 * coverage
+           + 0.35 * quantity_weighted_mean(candidate scores)
+           + 0.20 * speed(total_eta))
 ```
+
+Both clamped to `[0, 1]`. Every input comes from `$geoNear`, an organization document, or A4 —
+nothing is a constant standing in for a measurement. When A4 did not bid on a candidate, the `fit`
+term is dropped and its weight is redistributed across the remaining evidence rather than scored as
+zero: a supplier nobody argued for should not be buried by the model's silence.
+
+The candidate term is weighted by quantity, not a flat mean, so an option drawing 90% of its units
+from a strong supplier does not tie with the reverse.
+
+A5 emits an `agent.tool_call` carrying the weights and the per-candidate scores, so the ranking is
+inspectable on screen rather than asserted.
 
 Greedy fill by descending score, respecting available stock, a minimum viable split size, and active
 reservation locks.
@@ -241,8 +271,10 @@ System prompt:
 > accepted and which you rejected. JSON only.
 
 **`chosen_option_id` is validated against the option set before anything is written.** A value not
-in the set is treated as a validation failure and triggers the deterministic fallback (highest
-solver score). This is the structural answer to "what if the model hallucinates an allocation": it
+in the set is treated as a validation failure and triggers the deterministic fallback: **highest
+solver score**, then coverage, then speed. That ordering only became meaningful once the score was a
+real computation — while it was a per-strategy literal this path returned `max_coverage` every time,
+whatever the candidates looked like. This is the structural answer to "what if the model hallucinates an allocation": it
 cannot, because it never emits quantities.
 
 ### 2.7 A7 — Privacy Redactor (deterministic)
@@ -311,7 +343,7 @@ WebSocket frame; both funnel into `resolve()`.
 | Action | Effect |
 |---|---|
 | `approve` | Proceed to A9 with the arbiter's chosen option |
-| `override` | **As built:** switch to another `option_id` from the solver's set. The `allocations` array is accepted, audited, and then *not applied* — re-entering at A5 with admin allocations pinned is unimplemented. See `STATUS.md` §6 |
+| `override` | Re-enter at **A5** with the admin's allocations pinned as `opt_admin`; the solver validates feasibility before committing. An infeasible override emits `error{code: OVERRIDE_INFEASIBLE}` naming the actual free stock and the pipeline falls back to the arbiter's option. Deliberate under-allocation is allowed and recorded as partial coverage |
 | `reject` | Re-enter at **A3** with the rejected helper excluded from candidates |
 | `auto_approve` | Timeout path, identical to approve, tagged as unattended in `admin_actions` |
 
@@ -808,6 +840,7 @@ backend/
     agents/
       scripted.py            the pipeline; one function, A0 -> A9 in order
       dedupe.py              A1: geohash7 + resource + 15-minute window
+      solver.py              A5: the scoring model and admin-override validation
       fallbacks.py           deterministic stand-in for every LLM agent
     codec/                   see codec.md §9.2; also holds geohash encode/decode
     privacy/

@@ -34,7 +34,7 @@ from app.bus.eventbus import bus
 from app.config import get_settings
 from app.codec.tables import get_tables
 from app.db import repo_matches, repo_offers, repo_requests
-from app.agents import dedupe, fallbacks
+from app.agents import dedupe, fallbacks, solver
 from app.llm import groq_client, prompts
 from app.llm.schemas import AdvocatesOut, ArbiterOut, NarratorOut, TriageOut
 from app.notify import dispatcher as notify
@@ -120,16 +120,55 @@ def _greedy(candidates: list[dict], qty: int, key) -> list[dict]:
     return out
 
 
+def _enforce_triage_invariants(t: TriageOut) -> list[dict[str, Any]]:
+    """Repair internally inconsistent triage output in place.
+
+    Each field validates fine alone, so Pydantic cannot catch these: only the
+    relationship between them is wrong. Returns the list of corrections made,
+    which is published rather than swallowed -- a silent repair would let the
+    portal show model output that the model never produced.
+    """
+    fixed: list[dict[str, Any]] = []
+
+    def note(field: str, was: Any, now: Any, why: str) -> None:
+        fixed.append({"field": field, "was": was, "now": now, "why": why})
+
+    if t.tier == "T1" and not t.life_threat:
+        note("life_threat", False, True, "T1 is defined as life threat within 6 h")
+        t.life_threat = True
+    if t.life_threat and t.tier in ("T3", "T4"):
+        note("tier", t.tier, "T2", "life_threat set but tier below T2")
+        t.tier = "T2"
+    if t.tier == "T1" and t.time_to_harm_hours > 6:
+        note("time_to_harm_hours", t.time_to_harm_hours, 6, "T1 caps harm horizon at 6 h")
+        t.time_to_harm_hours = 6
+    # Severity and tier must not contradict each other either: a T1 at
+    # severity 20 would sort below a T3 at 60 in every severity-ordered view.
+    floor = {"T1": 80, "T2": 55, "T3": 30, "T4": 0}[t.tier]
+    if t.severity < floor:
+        note("severity", t.severity, floor, f"{t.tier} floor is {floor}")
+        t.severity = floor
+    return fixed
+
+
 def _option(option_id: str, label: str, allocs: list[dict], qty: int,
-            resource: str, score: float) -> dict:
+            resource: str, cand_scores: dict[str, float]) -> dict:
+    """Build one option and score it from what it actually contains.
+
+    This used to take a literal score -- 0.74, 0.81, 0.78, 0.80 -- identical on
+    every run regardless of the candidates. See agents/solver.py.
+    """
     allocs = [{**a, "resource": resource} for a in allocs if a["qty"] > 0]
     filled = sum(a["qty"] for a in allocs)
-    return {
+    opt = {
         "option_id": option_id, "label": label, "allocations": allocs,
         "coverage_pct": int(filled / max(qty, 1) * 100),
         "total_eta": max((a["eta_min"] for a in allocs), default=0),
-        "score": score,
+        "unmet": max(0, qty - filled),
+        "score": solver.option_score(allocs, qty, cand_scores),
     }
+    opt["score_components"] = solver.explain(opt, qty, cand_scores)
+    return opt
 
 
 async def run(request: dict[str, Any]) -> dict[str, Any]:
@@ -184,6 +223,16 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
     if dup["duplicate"]:
         await repo_requests.link_cluster(trace_id, dup)
 
+    # A3's candidate set does not depend on A2's output -- only the weighting
+    # does -- so the $geoNear round trip runs underneath the triage call
+    # instead of after it (agents.md 5.4). Events are still emitted in A2-then-A3
+    # order below, because a scrambled transcript is harder to read on stage
+    # than the latency saved is worth.
+    lat = float(request.get("lat", DEFAULT_LAT))
+    lon = float(request.get("lon", DEFAULT_LON))
+    t0 = time.perf_counter()
+    geo_task = asyncio.create_task(repo_offers.find_candidates(lat, lon, need, qty))
+
     # -- A2 triage: Groq --------------------------------------------------
     await bus.publish(trace_id, "agent.entered", {"agent": "a2_triage", "label": "Triage"},
                       agent="a2_triage", run_id=run_id)
@@ -213,13 +262,27 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
                                           request.get("urgency", "high")),
         max_tokens=900)
 
+    # The model returns T1 with life_threat false often enough to matter:
+    # internally inconsistent output that nothing downstream would catch,
+    # because both fields validate fine on their own. T1 *means* life threat
+    # within six hours (agents.md 2.2), so the invariant is enforced here and
+    # the correction is reported rather than applied silently.
+    normalized = _enforce_triage_invariants(triage)
+
     severity, tier = triage.severity, triage.tier
     await bus.publish(
         trace_id, "agent.message",
         {"text": triage.reasoning or f"Tier {tier}, severity {severity}.",
-         "structured": triage.model_dump(), "confidence": triage.confidence,
-         "llm": used_llm},
+         "structured": {**triage.model_dump(), "normalized": normalized},
+         "confidence": triage.confidence, "llm": used_llm},
         agent="a2_triage", run_id=run_id)
+    if normalized:
+        await bus.publish(
+            trace_id, "error",
+            {"code": "TRIAGE_INCONSISTENT", "corrections": normalized,
+             "fallback_used": False,
+             "detail": "model output was internally inconsistent; invariant enforced"},
+            agent="a2_triage", run_id=run_id)
     await repo_requests.set_triage(trace_id, triage.model_dump())
 
     # -- A3 geo: REAL $geoNear ---------------------------------------------
@@ -227,11 +290,7 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
                       {"agent": "a3_geo", "label": "Geo Candidate Finder"},
                       agent="a3_geo", run_id=run_id)
 
-    lat = float(request.get("lat", DEFAULT_LAT))
-    lon = float(request.get("lon", DEFAULT_LON))
-
-    t0 = time.perf_counter()
-    candidates, radius_used, queries = await repo_offers.find_candidates(lat, lon, need, qty)
+    candidates, radius_used, queries = await geo_task
     ms = int((time.perf_counter() - t0) * 1000)
 
     live = bool(candidates)
@@ -299,12 +358,14 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
 
     by_id = {c["cand_id"]: c for c in candidates}
     fit_by_id: dict[str, int] = {}
+    risk_by_id: dict[str, list[str]] = {}
     turn_no = 0
     for bid in advocates.bids:
         c = by_id.get(bid.cand_id)
         if c is None:                       # model named a candidate that does not exist
             continue
         fit_by_id[bid.cand_id] = bid.fit
+        risk_by_id[bid.cand_id] = list(bid.risk_flags)
         turn_no += 1
         stance = ("for" if bid.recommended_share == "full"
                   else "against" if bid.recommended_share == "none" else "neutral")
@@ -327,26 +388,42 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
                       agent="a5_solver", run_id=run_id)
     await _pause(0.1, 0.25)
 
+    # Every candidate scored by the weighted formula in agents.md 2.5, from
+    # real fields: $geoNear's eta and free stock, the organization's
+    # reliability and load, A4's fit and risk flags. No literals.
+    cand_scores = solver.score_candidates(candidates, qty, fit_by_id, risk_by_id)
+    await bus.publish(
+        trace_id, "agent.tool_call",
+        {"tool": "solver.score_candidates",
+         "args": {"weights": {"speed": solver.W_SPEED, "fit": solver.W_FIT,
+                              "reliability": solver.W_RELIABILITY,
+                              "headroom": solver.W_HEADROOM,
+                              "load_penalty": solver.P_LOAD,
+                              "blocker_penalty": solver.P_BLOCKER}},
+         "result_count": len(cand_scores),
+         "scores": [{"cand_id": k, "name": by_id[k]["name"], "score": v}
+                    for k, v in sorted(cand_scores.items(),
+                                       key=lambda kv: -kv[1]) if k in by_id]},
+        agent="a5_solver", run_id=run_id)
+
     opt_fast = _option("opt_1", "fastest",
                        _greedy(candidates, qty, key=lambda c: c["eta_minutes"]),
-                       qty, need, 0.74)
+                       qty, need, cand_scores)
     opt_cover = _option("opt_2", "max_coverage",
                         _greedy(candidates, qty, key=lambda c: -c["free"]),
-                        qty, need, 0.81)
+                        qty, need, cand_scores)
     # Least depleting: prefer suppliers with the most headroom relative to stock,
     # so a scarce holder is not drained for a request others can serve.
     opt_least = _option("opt_3", "least_depleting",
                         _greedy(candidates, qty,
                                 key=lambda c: (c["capacity_load"], -c["free"])),
-                        qty, need, 0.78)
-    # A4's fit scores steer the ranking; they never set a quantity.
-    if fit_by_id:
-        opt_fit = _option("opt_4", "best_fit",
-                          _greedy(candidates, qty,
-                                  key=lambda c: -fit_by_id.get(c["cand_id"], 50)),
-                          qty, need, 0.80)
-    else:
-        opt_fit = None
+                        qty, need, cand_scores)
+    # The weighted score decides the fill order here; A4's fit is one term in
+    # it. The model still never sets a quantity.
+    opt_fit = _option("opt_4", "best_fit",
+                      _greedy(candidates, qty,
+                              key=lambda c: -cand_scores.get(c["cand_id"], 0.0)),
+                      qty, need, cand_scores)
 
     seen, options = set(), []
     for o in (opt_cover, opt_fast, opt_least, opt_fit):
@@ -358,6 +435,10 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
             options.append(o)
     if not options:
         options = [opt_cover]
+
+    # agents.md 2.5 says "ranked feasible options". Now that the score is a
+    # real computation, ranking by it means something.
+    options.sort(key=lambda o: -o["score"])
 
     await bus.publish(trace_id, "options.proposed", {"options": options},
                       agent="a5_solver", run_id=run_id)
@@ -469,21 +550,16 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
         trace_id, decision_id, run_id=run_id,
         timeout_s=settings.gate_timeout_s, autopilot=settings.autopilot,
     )
-    await repo_matches.record_admin_action(
-        decision_id, result.get("action", "unknown"), result.get("admin_id", "admin"),
-        before={"chosen_option_id": chosen},
-        after={"option_id": result.get("option_id") or chosen},
-        note=result.get("note"), trace_id=trace_id)
-
-    await bus.publish(
-        trace_id, "admin.action",
-        {"decision_id": decision_id, "action": result.get("action"),
-         "admin_id": result.get("admin_id", "admin"), "note": result.get("note"),
-         "option_id": result.get("option_id"), "override": result.get("allocations")},
-        agent="a8_gate", run_id=run_id,
-    )
-
     if result.get("action") == "reject":
+        await repo_matches.record_admin_action(
+            decision_id, "reject", result.get("admin_id", "admin"),
+            before={"chosen_option_id": chosen}, after={"option_id": None},
+            note=result.get("note"), trace_id=trace_id)
+        await bus.publish(
+            trace_id, "admin.action",
+            {"decision_id": decision_id, "action": "reject",
+             "admin_id": result.get("admin_id", "admin"), "note": result.get("note")},
+            agent="a8_gate", run_id=run_id)
         await bus.publish(trace_id, "replan.triggered",
                           {"reason": "admin_rejected", "prior_run_id": run_id},
                           agent="a11_replanner", run_id=run_id)
@@ -491,8 +567,57 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
         await bus.publish(trace_id, "run.completed", {"status": "rejected"}, run_id=run_id)
         return {"status": "rejected", "trace_id": trace_id}
 
-    final = next((o for o in options if o["option_id"] == result.get("option_id")), None) \
+    # -- override: re-enter at A5 with the admin's allocations pinned --------
+    # agents.md 2.8. The array used to be echoed into admin.action, written to
+    # the audit trail, and then discarded -- only `option_id` was ever read.
+    # The solver validates feasibility before anything is pinned, because an
+    # override is a human instruction, not a licence to write an allocation the
+    # stock cannot support.
+    override_errors: list[str] = []
+    admin_option = None
+    if result.get("action") == "override" and result.get("allocations"):
+        admin_option, override_errors = solver.build_admin_option(
+            result["allocations"], candidates, need, qty, cand_scores)
+        if admin_option is not None:
+            options = [admin_option] + options
+            await bus.publish(
+                trace_id, "options.proposed",
+                {"options": options, "source": "admin_override",
+                 "note": "admin allocations validated against live stock and pinned"},
+                agent="a5_solver", run_id=run_id)
+        else:
+            await bus.publish(
+                trace_id, "error",
+                {"code": "OVERRIDE_INFEASIBLE", "errors": override_errors,
+                 "fallback_used": True,
+                 "detail": "admin allocations failed solver validation; "
+                           "falling back to the selected option"},
+                agent="a5_solver", run_id=run_id)
+
+    target_option_id = (admin_option["option_id"] if admin_option
+                        else result.get("option_id"))
+    final = next((o for o in options if o["option_id"] == target_option_id), None) \
         or next(o for o in options if o["option_id"] == chosen)
+
+    await repo_matches.record_admin_action(
+        decision_id, result.get("action", "unknown"), result.get("admin_id", "admin"),
+        before={"chosen_option_id": chosen,
+                "allocations": next((o["allocations"] for o in options
+                                     if o["option_id"] == chosen), None)},
+        after={"option_id": final["option_id"], "allocations": final["allocations"],
+               "override_applied": admin_option is not None,
+               "override_errors": override_errors or None},
+        note=result.get("note"), trace_id=trace_id)
+
+    await bus.publish(
+        trace_id, "admin.action",
+        {"decision_id": decision_id, "action": result.get("action"),
+         "admin_id": result.get("admin_id", "admin"), "note": result.get("note"),
+         "option_id": final["option_id"], "override": result.get("allocations"),
+         "override_applied": admin_option is not None,
+         "override_errors": override_errors},
+        agent="a8_gate", run_id=run_id,
+    )
 
     # -- reserve real stock ------------------------------------------------
     if live:

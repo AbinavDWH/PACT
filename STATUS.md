@@ -127,12 +127,13 @@ stored flipped it would report thousands of km.
 
 ### Tests
 
-**161 Python tests pass.** `cd backend && python -m pytest tests/ -q`
+**194 Python tests pass.** `cd backend && python -m pytest tests/ -q`
 
 | File | Count | Covers |
 |---|---|---|
 | `test_codec.py` | 75 | The wire format, both directions |
 | `test_privacy.py` | 56 | A7. Every test asserts on **absence** — a privacy test that only checks "admin sees everything" proves nothing |
+| `test_solver.py` | 33 | A5 scoring, override validation, triage invariants. Every weight has a test that moves one input and requires the score to move |
 | `test_dedupe.py` | 20 | Geohash against three published vectors, plus cluster behaviour |
 | `test_notify.py` | 10 | The two dispatch paths differ in channel, state and acceptability |
 | `test_ws_org.py` | 10 | Org socket auth, projection, and bus topic routing |
@@ -176,10 +177,10 @@ model ids with `client.models.list()` before assuming.
 | A2 Triage | **Real Groq**, reasons over the codec selections |
 | A3 Geo | **Real** `$geoNear`, radius ladder 10→25→60→150 km |
 | A4 Advocates | **Real Groq**, one call with all candidates |
-| A5 Solver | **Real** greedy fill, weighted by A4 fit scores |
+| A5 Solver | **Real** greedy fill; scores computed by the weighted formula in `agents/solver.py`, options ranked by it |
 | A6 Arbiter | **Real Groq**, `option_id` validated against the option set |
 | A7 Privacy | **Real** field matrix in `app/privacy/`, applied and measured |
-| A8 Gate | **Real** — approve / reject, autopilot timeout, audited. Override picks an option; it does **not** apply custom allocations (§6) |
+| A8 Gate | **Real** — approve / override / reject, autopilot timeout, audited. Override re-enters at A5 with the admin's allocations pinned and **validated against live stock** |
 | A9 Narrator | **Real Groq** + real dispatch routing in `app/notify/` |
 | A10 Verify | Deterministic delivery-code check on assignment status; no LLM branch |
 | A11 Replan | Admin-forced + **helper-decline trigger**; no SLA timers or T1 preemption |
@@ -288,15 +289,44 @@ six are fixed and each has a regression test:
    `best` rather than `final`, so an override recorded the wrong option's
    reasoning.
 
-### Still open
+### Closed in the second pass — step 3 finished
 
-**Admin override does not apply custom allocations.** `POST
-/admin/decisions/{id}/action` accepts an `allocations` array, echoes it into
-`admin.action`, and writes it to the audit trail — then discards it.
-`scripted.py` only reads `option_id`. agents.md §2.8 says override re-enters at
-A5 with the admin's allocations pinned; it does not. **Approve, reject, and
-option-switching all work** — only free-form allocation editing is unimplemented.
-*Est. 45 min.*
+**A5's scores were four literals.** `_option()` took `0.74 / 0.81 / 0.78 /
+0.80`, identical on every run regardless of ETA, stock, reliability or load —
+a constant presented as a measurement, which is exactly what the governing rule
+exists to rule out. `agents/solver.py` now implements the weighted formula from
+agents.md §2.5 over real fields, options are ranked by it, and the arbiter's
+deterministic fallback follows the score as §2.6 specifies (it previously
+returned `max_coverage` every time, because that strategy's hardcoded literal
+happened to be the highest). A live run now reports candidate `0.4273` and
+option `0.7684`. An `agent.tool_call` publishes the weights and the per-candidate
+scores so the ranking is inspectable rather than asserted.
+
+**Admin override now applies custom allocations.** It re-enters at A5, and the
+solver validates feasibility before anything is pinned. Verified live both ways:
+a 3→2 override committed 2 units and scored `opt_admin` at `0.6184`, *below*
+max_coverage's `0.7684`, because it covers less; a 99999-unit override was
+refused with `OVERRIDE_INFEASIBLE — Sanjeevani Relief Trust has 240 free` and
+the pipeline fell back and committed the correct 3. The audit trail records
+before/after allocations and the refusal reason.
+
+**A2 triage invariants are enforced.** The model returns `tier: T1` with
+`life_threat: false` often enough to matter; each field validates alone, only
+the relationship is wrong, so Pydantic cannot catch it. `T1 ⇒ life_threat`,
+`life_threat ⇒ tier ≥ T2`, `T1 ⇒ harm horizon ≤ 6 h`, and severity is lifted to
+its tier floor. Corrections are **published** as a `TRIAGE_INCONSISTENT` event,
+not applied silently — a silent repair would show output the model never
+produced.
+
+**A2 and A3 now overlap** (agents.md §5.4). The `$geoNear` round trip runs
+underneath the triage call. Events are still emitted in A2-then-A3 order,
+because a scrambled transcript costs more on stage than the latency saves.
+
+**`fallbacks.arbiter([])` used to raise.** It returned `""` for a field with
+`min_length=1` — the "no feasible option" branch threw on the one input it
+existed to handle. Unreachable from the current pipeline, fixed anyway.
+
+### Still open
 
 **The event `seq` counter resets on process restart.** It is in-process
 (`bus/envelope.py`), so after a restart fresh events carry lower seq numbers
@@ -458,7 +488,6 @@ Get-NetTCPConnection -LocalPort 8000 -State Listen |
 | Session/signup (`/session/signup`, `/helpers/join`) | 1–2 h |
 | Portal UI for the privacy panel, reveal badge and dispatch route | 1–2 h |
 | Organization portal `/org/*` Next.js routes | 2–3 h |
-| Admin override with custom allocations (§6) | 45 m |
 | `seq` counter seeded from Mongo at startup (§6) | 20 m |
 | Android app: signup, chip screen, GPS, HTTP/SMS transport, outbox | 8–12 h |
 | Offline MapLibre | 2–3 h |

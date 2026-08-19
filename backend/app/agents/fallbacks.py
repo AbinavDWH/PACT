@@ -15,6 +15,10 @@ from typing import Any
 from app.llm.schemas import (AdvocatesOut, ArbiterOut, Bid, DebateTurn,
                              NarratorOut, TriageOut)
 
+# Sentinel for "the solver produced nothing feasible". Never a real option_id,
+# so a caller that looks it up fails loudly rather than committing something.
+NO_OPTION = "opt_none"
+
 
 def triage(prior: int, injury_rank: int, trapped: bool,
            people: int, urgency: str) -> TriageOut:
@@ -87,11 +91,25 @@ def advocates(candidates: list[dict[str, Any]], demand: int) -> AdvocatesOut:
 
 
 def arbiter(options: list[dict[str, Any]]) -> ArbiterOut:
-    """Coverage first, then speed -- the same ordering the prompt specifies."""
-    if not options:
-        return ArbiterOut(chosen_option_id="", justification="No feasible option.")
+    """Highest solver score, as agents.md 2.6 specifies for this path.
 
-    best = max(options, key=lambda o: (o["coverage_pct"], -o["total_eta"]))
+    That used to be meaningless -- the score was a per-strategy literal, so
+    this always returned max_coverage whatever the candidates looked like. The
+    score is now computed (agents/solver.py) and weights coverage most heavily,
+    so the fallback and the arbiter's prompt optimise the same thing. Coverage
+    then speed remain the tiebreaks.
+    """
+    if not options:
+        # `chosen_option_id` has min_length=1, so the empty string this used to
+        # return raised ValidationError -- the "no feasible option" branch threw
+        # on the one input it existed to handle. Unreachable from the current
+        # pipeline, which guarantees a non-empty option set, but a landmine for
+        # the next caller.
+        return ArbiterOut(chosen_option_id=NO_OPTION, confidence=0.0,
+                          justification="No feasible option.")
+
+    best = max(options, key=lambda o: (o.get("score", 0.0), o["coverage_pct"],
+                                       -o["total_eta"]))
     return ArbiterOut(
         chosen_option_id=best["option_id"], confidence=0.4,
         turns=[DebateTurn(speaker="arbiter",
