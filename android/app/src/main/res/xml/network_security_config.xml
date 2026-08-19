@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP is blocked by default from targetSdk 28 onward. The dev
+  backend is plain http on whatever LAN address the laptop has that morning, so
+  without this every request fails with a cleartext-not-permitted error that
+  reads like a network outage rather than a policy block.
+
+  This permits cleartext generally, because Android's network security config
+  matches exact hosts and cannot express "the private ranges". Listing
+  192.168.1.6 would only work until the DHCP lease changed. The narrower rule
+  is not available, so the broad one is stated plainly rather than disguised as
+  a narrow one.
+
+  Acceptable here and nowhere else: this is a sideloaded demo build.
+  memory_draft.md 8.4 already records that PACT provides minimal disclosure and
+  integrity, not confidentiality, and names transport encryption as
+  post-hackathon work. A release build sets this false and uses TLS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

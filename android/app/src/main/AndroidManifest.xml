@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The HTTP path and the connectivity check that decides whether to use it. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- The SMS fallback transport. Runtime granted, and Play Store policy
+         restricts SEND_SMS heavily. Irrelevant for a sideloaded demo build; it
+         would matter for release. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!-- GPS for the PACK10 coordinate. Fine location, because the ~1 km coarse
+         position is what the SERVER shows a helper before acceptance. The
+         request itself needs a real fix or a rescue team is sent to the wrong
+         building. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Not required: the app must still install on a tablet with no GPS or no
+         radio, where it degrades to the HTTP path and a manual position. -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <application
+        android:label="PACT"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.Pact">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Pact">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

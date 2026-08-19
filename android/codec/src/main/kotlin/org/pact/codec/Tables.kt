@@ -59,6 +59,23 @@ object Tables {
             (if (v is String) v else (v as? Json.Obj)?.get("label")) == label
         }?.key
 
+    /**
+     * Every (code, label) for an enum or bucket dimension, in table order.
+     *
+     * The app builds its selection chips from this rather than holding its own
+     * copy of the taxonomy. A second list of situations or injury levels in the
+     * UI layer would drift from the tables the moment either changed, and the
+     * failure would be a chip that encodes to a code the backend rejects.
+     */
+    fun codes(name: String): List<Pair<String, String>> =
+        (dim(name)["values"] as Json.Obj).map.entries.map { (code, v) ->
+            code to (if (v is String) v else (v as? Json.Obj)?.get("label") as? String ?: code)
+        }
+
+    /** Every (key, code) for a bitfield dimension, in bit order. */
+    fun bitKeys(name: String): List<Pair<String, String>> =
+        bitMap(name).map { (it["key"] as String) to ((it["code"] as? String) ?: "") }
+
     private fun bitMap(name: String): List<Json.Obj> =
         (dim(name)["map"] as Json.Arr).items.map { it as Json.Obj }
 

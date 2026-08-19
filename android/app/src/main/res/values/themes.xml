@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose draws everything; this exists only so the window has a
+         sensible background and no ActionBar flashes before the first frame. -->
+    <style name="Theme.Pact" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#F9FAFB</item>
+        <item name="android:statusBarColor">#B45309</item>
+    </style>
+</resources>

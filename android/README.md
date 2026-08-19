@@ -88,4 +88,85 @@ config block.
 - `codec/` — **compiles and passes.** `gradle :codec:test --rerun-tasks` prints
   `parity OK: 11 vectors`. (This section previously said "written, never
   compiled"; that was true before the JDK landed on `E:`.)
-- `app/` — see below.
+- `app/` — **builds.** `gradle :app:assembleDebug` produces a 9.6 MB
+  `app-debug.apk`. 13 JVM unit tests pass.
+- **Not installed on a phone.** The vivo V2336 was not plugged in during the
+  build session, so `adb devices` was empty and nothing has run on real
+  hardware. Everything below the APK line is verified; the app's behaviour on a
+  device is not. See "What is unverified".
+
+## The app module
+
+```
+app/src/main/kotlin/org/pact/app/
+  MainActivity.kt      permissions up front, wiring
+  Session.kt           uid / token / seq, SharedPreferences
+  Api.kt               HttpURLConnection, no Retrofit
+  Outbox.kt            append-only JSON-lines send queue
+  Transport.kt         HTTP, then SMS, then queue
+  Loc.kt               LocationManager (not Play Services)
+  Options.kt           chip taxonomy, read from the codec tables
+  ui/                  Compose screens
+app/src/test/kotlin/   SelectionTest: the encoding contract, no device needed
+```
+
+### Dependency policy
+
+Deliberately mean, because every library is a download that has to succeed on
+venue wifi the morning of a demo:
+
+| Not used | Used instead | Why |
+|---|---|---|
+| Retrofit / OkHttp | `java.net.HttpURLConnection` | four verbs and a bearer header |
+| kotlinx.serialization | `org.json` | ships with Android |
+| Room | append-only JSON-lines file | the queue needs four operations |
+| Play Services location | `android.location.LocationManager` | fused location leans on network positioning; this app must produce a fix with **no data at all** |
+
+Compose stays: the alternative is several hundred lines of XML.
+
+### The taxonomy is not duplicated
+
+Every chip is generated from `shared/codec/pact_tables.v1.json`, copied into
+assets at build time by `syncCodecTables`. There is no list of situations or
+injury levels written out in the UI layer. A second copy would drift, and the
+failure would be a chip that encodes to a code the backend rejects — surfacing
+as a rejected emergency, not a UI bug.
+
+## Stage 2 — build and install the APK
+
+```bash
+source android/env.sh
+cd android
+gradle :app:assembleDebug
+
+# Point it at this machine's LAN address, not localhost:
+gradle :app:assembleDebug -PpactApiBase=http://192.168.1.6:8000
+
+adb devices                      # confirm the phone is listed
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+`-PpactApiBase` and `-PpactSmsTo` override `BuildConfig.API_BASE` and
+`BuildConfig.SMS_TO`. The backend must be started with `--host 0.0.0.0`, or the
+phone cannot reach it however correct the address is.
+
+## What is unverified
+
+Honest list, because none of this has run on hardware:
+
+- Every Compose screen. They compile; they have never been rendered.
+- The runtime permission flow.
+- A real GPS fix from `LocationManager`.
+- An actual `SmsManager.sendTextMessage`.
+- The outbox surviving a real process death.
+
+What **is** verified without a device:
+
+- The APK builds.
+- `SelectionTest` (13 tests) round-trips every chip the UI can offer through
+  the codec, checks the frame is one GSM-7 segment, and asserts an incomplete
+  selection throws rather than emitting a frame with a meaningful zero in it.
+- The parity test proves the Kotlin codec is byte-identical to Python.
+- The exact string that selection produces was posted at the live backend and
+  accepted, decoding to the right situation, injury, mobility, urgency, needs
+  and vulnerability.

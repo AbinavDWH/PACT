@@ -48,7 +48,7 @@ an `option_id`, validated against the solver's set.
 | 1 | Event bus, WebSocket, portal, MongoDB, seed, geo, solver | **Complete** |
 | 2 | Codec: tables, Python + Kotlin, vectors, ingest | **Complete** |
 | 3 | Real Groq agents + A1, A7, reveal, notify | **Complete** — see §5 |
-| 4 | Android app | Not started (toolchain ready) |
+| 4 | Android app | **Builds, never run on a phone** — see §12 |
 | 5 | Organization portal | Backend + `/ws/org` done; no `/org/*` UI |
 | 6 | A10 verification, A11 replanner | Endpoints + decline trigger; no SLA timers |
 | 7 | Polish, backup video, pitch | Not started |
@@ -356,8 +356,6 @@ exist.
 
 ### Not started
 
-- **Android app** (`android/app/`). Only the codec library exists — verified:
-  `gradle :codec:test --rerun-tasks` prints `parity OK: 11 vectors`.
 - **Organization portal UI** (`/org/*` Next.js routes). The backend and the
   redacted socket are done.
 - **Offline MapLibre.**
@@ -532,3 +530,48 @@ backend/app/agents/dedupe.py
 backend/app/routers/assignments.py
 backend/tests/            test_privacy.py, test_dedupe.py, test_notify.py, test_ws_org.py
 ```
+
+---
+
+## 12. Step 4 — the Android app
+
+Built without Android Studio. `android/README.md` has the full layout,
+dependency policy and build commands.
+
+```bash
+source android/env.sh
+cd android
+gradle :app:assembleDebug -PpactApiBase=http://<lan-ip>:8000
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Start the backend with `--host 0.0.0.0` or the phone cannot reach it however
+correct the address is.
+
+### Verified
+
+- APK builds: 9.6 MB `app-debug.apk`.
+- **13 JVM unit tests pass** (`gradle :app:testDebugUnitTest`). They round-trip
+  every chip the UI can offer through the codec, assert the frame is one
+  GSM-7 segment even with every need selected, and require an incomplete
+  selection to throw rather than emit a frame with a meaningful zero in it.
+- The Kotlin codec is still byte-identical to Python: `parity OK: 11 vectors`.
+- The exact string that selection produces was posted at the live backend and
+  **accepted**, decoding to the right situation, injury, mobility, urgency,
+  needs and vulnerability.
+
+### NOT verified — the app has never run on hardware
+
+The vivo V2336 was not plugged in; `adb devices` was empty for the whole
+session. Untested: every Compose screen, the runtime permission flow, a real
+GPS fix, an actual `SmsManager.sendTextMessage`, and the outbox surviving a
+real process death. Treat the first install as a debugging session, not a
+demo rehearsal.
+
+### Deliberate deviations from the plan
+
+| Plan said | Built | Why |
+|---|---|---|
+| Room outbox | append-only JSON-lines file | the queue needs four operations; Room costs an annotation processor and a codegen step |
+| — | `LocationManager`, not Play Services | fused location leans on network positioning; this app must produce a fix with no data at all |
+| — | `HttpURLConnection`, `org.json` | every dependency is a download that has to succeed on venue wifi |
