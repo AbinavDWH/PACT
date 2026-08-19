@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import org.humanitarian.fieldapp.models.FieldReport
 import org.humanitarian.fieldapp.network.ApiClient
 import org.humanitarian.fieldapp.network.ApiResult
@@ -134,7 +135,7 @@ fun FieldReportScreen(
                     smsPayload = ""
                     // Persist to My Requests screen
                     val needId = try {
-                        result.data.optString("need_id", "unknown")
+                        JSONObject(result.data).optString("need_id", "unknown")
                     } catch (e: Exception) {
                         "unknown"
                     }
