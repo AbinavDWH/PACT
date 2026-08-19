@@ -133,9 +133,13 @@ async def send(token: str, *, title: str, body: str,
         message_id = await anyio.to_thread.run_sync(messaging.send, msg)
         return {"sent": True, "message_id": message_id}
     except Exception as e:
-        # An unregistered token means the app was reinstalled. Report it so the
-        # caller can clear it rather than retrying forever.
+        # Distinguish dead addresses from transient failures. `Unregistered`
+        # means the app was uninstalled or the token rotated; `InvalidArgument`
+        # means it was never well-formed. Neither will ever start working, so
+        # the caller clears them instead of retrying on every future dispatch.
+        # A network blip or a quota error must NOT clear a good token.
         name = type(e).__name__
+        permanent = name in ("UnregisteredError", "SenderIdMismatchError",
+                             "InvalidArgumentError")
         log.warning("fcm send failed (%s): %s", name, e)
-        return {"sent": False, "reason": f"{name}: {e}",
-                "stale_token": "Unregistered" in name or "NotFound" in name}
+        return {"sent": False, "reason": f"{name}: {e}", "stale_token": permanent}
