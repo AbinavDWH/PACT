@@ -59,6 +59,19 @@ android {
         // Lets the app skip the FCM code paths entirely when it was built
         // without a Firebase project, rather than catching NoClassDefFoundError.
         buildConfigField("boolean", "HAS_FCM", file("google-services.json").exists().toString())
+
+        // Diagnostic only: send a plain ASCII body instead of the codec string,
+        // to separate "the modem rejects this content" from "the modem rejects
+        // this app's sends". Never enabled in a normal build.
+        val plainTest = (project.findProperty("pactSmsPlainTest") as String?) == "true"
+        buildConfigField("boolean", "SMS_PLAIN_TEST", plainTest.toString())
+
+        // Diagnostic only: take the SMS path even when data is available.
+        // Needed because on an IMS/VoLTE network SMS rides the data bearer, so
+        // "turn data off to force SMS" can disable SMS itself -- the two cannot
+        // be tested independently without this.
+        val forceSms = (project.findProperty("pactForceSms") as String?) == "true"
+        buildConfigField("boolean", "FORCE_SMS", forceSms.toString())
     }
 
     buildFeatures {

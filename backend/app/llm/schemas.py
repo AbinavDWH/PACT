@@ -79,6 +79,24 @@ class AdvocatesOut(BaseModel):
         if isinstance(data, dict) and isinstance(data.get("bids"), list):
             out = []
             for b in data["bids"]:
+                # Already-constructed Bid objects pass straight through.
+                #
+                # Without this the normaliser silently DROPPED them: it was
+                # written for raw JSON from the model, where every element is a
+                # dict, and `not isinstance(b, dict)` therefore discarded every
+                # bid built in Python. That made `fallbacks.advocates`
+                # unconstructible -- it returns real Bid objects -- so the list
+                # emptied, min_length=1 raised, and the exception escaped
+                # call_json and killed the run.
+                #
+                # The effect: A4's deterministic fallback could never run. Any
+                # Groq failure or rate-limit shed at the advocates step took the
+                # whole pipeline down, which is the precise opposite of what
+                # the fallbacks exist to do. Found when the token budget shed
+                # mid-demo and two SMS-sourced requests died at A4.
+                if isinstance(b, Bid):
+                    out.append(b)
+                    continue
                 if not isinstance(b, dict):
                     continue
                 b = dict(b)

@@ -67,6 +67,14 @@
             </intent-filter>
         </service>
 
+        <!-- Targeted by an explicit PendingIntent from Transport.sendSms.
+             Declared rather than registered dynamically: Android 14 restricted
+             implicit intents inside PendingIntents, and on 16 supplying one
+             stopped the SMS being sent at all. -->
+        <receiver
+            android:name=".SmsResultReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".SmsGateway"
             android:exported="true"

@@ -1,15 +1,20 @@
 package org.pact.app
 
 import android.Manifest
+import android.app.Activity
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.telephony.SmsManager
+import android.telephony.SubscriptionManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * One wire format, two transports.
@@ -64,7 +69,7 @@ class Transport(
     }
 
     suspend fun attempt(id: String, payload: String): Outcome {
-        if (online()) {
+        if (online() && !BuildConfig.FORCE_SMS) {
             try {
                 val res = api.ingest(payload)
                 val status = res.optString("status")
@@ -85,13 +90,17 @@ class Transport(
 
         if (canSendSms()) {
             try {
-                sendSms(payload)
-                outbox.mark(id, "sent_sms", transport = "sms")
+                val detail = sendSms(payload)
+                outbox.mark(id, "sent_sms", transport = "sms", note = detail)
                 return Outcome(Result.SENT_SMS, "No data. Sent as an SMS.")
             } catch (e: Exception) {
+                // The real reason, recorded. "sms failed" told nobody anything
+                // and made the outbox useless for diagnosis.
                 Log.w(TAG, "sms send failed", e)
-                outbox.mark(id, "pending", transport = null, note = "sms failed")
-                return Outcome(Result.QUEUED, "Saved. Will retry when there is signal.")
+                outbox.mark(id, "pending", transport = null,
+                            note = "sms failed: ${e.message}")
+                return Outcome(Result.QUEUED,
+                               "Could not send by SMS: ${e.message}. Saved and will retry.")
             }
         }
 
@@ -112,19 +121,83 @@ class Transport(
         return sent
     }
 
-    private suspend fun sendSms(payload: String) = withContext(Dispatchers.IO) {
-        val sms = context.getSystemService(SmsManager::class.java)
+    /**
+     * Send, and wait for the radio to say what happened.
+     *
+     * `sendTextMessage` returns as soon as the message is handed to the
+     * telephony stack. It throws only on bad arguments, so passing null
+     * PendingIntents -- which this did -- means the app learns nothing about
+     * whether the message was actually transmitted. The outbox then reported
+     * "Sent as SMS" when all it knew was "the call did not throw", which is
+     * precisely the kind of unearned confidence this project keeps removing.
+     *
+     * It also cost a debugging session: the app insisted it had sent while the
+     * receiving handset showed nothing, and there was no evidence either way.
+     *
+     * The result intent gives the real answer -- RESULT_OK, or a specific
+     * failure like no service, radio off, or a null PDU.
+     */
+    private suspend fun sendSms(payload: String): String = withContext(Dispatchers.IO) {
+        // Bind to the subscription the user actually sends SMS on. This phone
+        // is dual-SIM with slot 1 empty, and an SmsManager not bound to a
+        // subscription can resolve to the absent slot and no-op silently.
+        val base = context.getSystemService(SmsManager::class.java)
             ?: throw IllegalStateException("no SmsManager on this device")
-        // The codec is sized so a request fits one segment, but divide anyway:
-        // a multipart send that silently truncates would corrupt the checksum
-        // and the backend would reject a real emergency as BAD_CRC.
-        val parts = sms.divideMessage(payload)
-        if (parts.size == 1) {
-            sms.sendTextMessage(BuildConfig.SMS_TO, null, payload, null, null)
-        } else {
-            sms.sendMultipartTextMessage(BuildConfig.SMS_TO, null, parts, null, null)
+        val subId = SubscriptionManager.getDefaultSmsSubscriptionId()
+        val sms = if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+            runCatching { base.createForSubscriptionId(subId) }.getOrDefault(base)
+        } else base
+        Log.i(TAG, "sending to ${BuildConfig.SMS_TO} on subId=$subId")
+
+        val sendId = java.util.UUID.randomUUID().toString()
+        val result = SmsResultReceiver.awaitResult(sendId)
+
+        // EXPLICIT: names the receiver class outright. An implicit
+        // Intent(action) here is what broke the send on Android 16 -- see
+        // SmsResultReceiver's comment. The unique requestCode stops
+        // FLAG_UPDATE_CURRENT from overwriting a concurrent send's intent.
+        val intent = Intent(context, SmsResultReceiver::class.java)
+            .setAction(SmsResultReceiver.ACTION)
+            .putExtra(SmsResultReceiver.EXTRA_ID, sendId)
+        val pi = PendingIntent.getBroadcast(
+            context, sendId.hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+        try {
+            // The codec is sized so a request fits one segment, but divide
+            // anyway: a multipart send that silently truncates would corrupt
+            // the checksum and the backend would reject a real emergency as
+            // BAD_CRC.
+            // TEMPORARY DIAGNOSTIC: isolate whether the modem is rejecting the
+            // message CONTENT (pipes are GSM-7 extension characters) or the
+            // send path itself. Remove once answered.
+            val body = if (BuildConfig.SMS_PLAIN_TEST) "PACTTEST123" else payload
+            Log.i(TAG, "body=[$body] len=${body.length}")
+
+            val parts = sms.divideMessage(body)
+            if (parts.size == 1) {
+                sms.sendTextMessage(BuildConfig.SMS_TO, null, body, pi, null)
+            } else {
+                sms.sendMultipartTextMessage(
+                    BuildConfig.SMS_TO, null, parts,
+                    ArrayList(List(parts.size) { pi }), null)
+            }
+
+            // Bounded: a radio that never answers must not hang the send
+            // forever, and an unknown outcome is reported as unknown rather
+            // than as success.
+            val code = withTimeoutOrNull(30_000) { result.await() }
+            when {
+                code == null -> throw SmsFailure("no confirmation from the radio after 30 s")
+                code == Activity.RESULT_OK -> SmsResultReceiver.describe(code)
+                else -> throw SmsFailure(SmsResultReceiver.describe(code))
+            }
+        } finally {
+            SmsResultReceiver.forget(sendId)
         }
     }
+
+    class SmsFailure(message: String) : Exception(message)
 
     companion object { private const val TAG = "PactTransport" }
 }
