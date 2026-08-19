@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useAgents } from "../_lib/AgentSocketProvider";
 import { DETERMINISTIC, type DebateTurn, type Run } from "../_lib/types";
 import { SmsSimulator } from "./SmsSimulator";
+import MapPanel, { pointsFromRun } from "../_components/MapPanel";
 import "./admin.css";
 
 const NEEDS = ["medical_kits", "water_kits", "food_kits", "tents", "rescue_team"];
@@ -133,6 +134,14 @@ function RunCard({ run, decide }: {
           </div>
         ))}
       </div>
+
+      {/* Crisis point, the candidates $geoNear returned, and lines to whoever
+          was actually committed (memory_draft.md 13). Only rendered once
+          something has a position, so an unlocated request does not show an
+          empty map claiming otherwise. */}
+      {(run.requestPoint || (run.candidates?.length ?? 0) > 0) && (
+        <MapPanel points={pointsFromRun(run)} height={280} />
+      )}
 
       {run.turns.length > 0 && <Debate turns={run.turns} winner={run.debateWinner}
                                        dissent={run.debateDissent} />}

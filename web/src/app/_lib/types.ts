@@ -125,6 +125,16 @@ export interface Run {
   // False means $geoNear returned nothing and the run used hardcoded
   // fixtures. The pipeline continues either way, so without surfacing it an
   // operator cannot tell that the one real database query stopped running.
+  // Positions for the map panel. Whatever the stream carried: the admin
+  // audience receives exact coordinates by policy, and every other audience is
+  // redacted server-side before reaching any client.
+  requestPoint?: { lat: number; lon: number };
+  candidates?: {
+    cand_id: string; name: string;
+    lat?: number | null; lon?: number | null;
+    distance_km?: number; eta_minutes?: number;
+  }[];
+
   geoLive?: boolean;
   cluster?: { duplicate: boolean; size: number };
   llmAgents?: Record<string, boolean>;

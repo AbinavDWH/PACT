@@ -237,6 +237,31 @@
 .notifyMsg { margin-top: 0.15rem; }
 .notifyDetail { margin-top: 0.1rem; font-size: 0.7rem; color: var(--dim); font-style: italic; }
 
+/* ---- map ---- */
+.mapWrap {
+  position: relative; margin: 0.7rem 0; border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; background: #0d1117;
+}
+.mapCanvas { width: 100%; height: 100%; }
+.mapEmpty {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 0.78rem; color: var(--dim); pointer-events: none;
+}
+/* Markers are plain divs so there is no icon sprite to fetch -- an external
+   sprite would be one more thing that fails when the network does. */
+.mapPin {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85); cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+.mapPin.request { width: 17px; height: 17px; }
+.maplibregl-popup-content {
+  background: var(--panel, #161b22); color: var(--fg, #e6edf3);
+  font-size: 0.75rem; border-radius: 6px; padding: 0.45rem 0.6rem;
+}
+.maplibregl-popup-tip { border-top-color: var(--panel, #161b22); }
+.maplibregl-ctrl-attrib { font-size: 0.6rem; }
+
 /* ---- geo fallback warning ---- */
 .geoWarn {
   margin-top: 0.6rem; padding: 0.5rem 0.65rem; font-size: 0.76rem;

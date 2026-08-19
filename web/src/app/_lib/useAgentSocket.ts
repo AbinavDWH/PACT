@@ -33,9 +33,16 @@ function reduce(run: Run, ev: Envelope): Run {
   const next: Run = { ...run, lastSeq: ev.seq, runId: ev.run_id ?? run.runId };
 
   switch (ev.type) {
-    case "run.started":
+    case "run.started": {
       next.summary = str("masked_summary") ?? "";
+      const req = p.request as Record<string, unknown> | undefined;
+      const lat = req?.lat as number | undefined;
+      const lon = req?.lon as number | undefined;
+      if (typeof lat === "number" && typeof lon === "number") {
+        next.requestPoint = { lat, lon };
+      }
       break;
+    }
 
     case "agent.entered":
       if (!next.agentsSeen.includes(ev.agent)) {
@@ -86,6 +93,9 @@ function reduce(run: Run, ev: Envelope): Run {
           byField: (structured.by_field as Record<string, number>) ?? {},
           orgBlockedTypes: audiences?.org?.event_types_blocked ?? [],
         };
+      }
+      if (Array.isArray(structured?.candidates)) {
+        next.candidates = structured.candidates as Run["candidates"];
       }
       if (structured?.cluster_size !== undefined) {
         next.cluster = {

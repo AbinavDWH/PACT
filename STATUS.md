@@ -353,9 +353,11 @@ exist.
 
 ### Not started
 
-- **Offline MapLibre.** Cut-line 1. **`memory_draft.md` §24 step 6 still says
-  the app "updates its offline map from the SMS reply" — it does not, and that
-  clause must not be said on camera.** `DEMO.md` records this.
+- **The map inside the Android app.** The *portal* map is done (§6F), but
+  `memory_draft.md` §15 also wants pre-cached tiles on the handset and §24
+  step 6 says the app "updates its offline map from the SMS reply". **Neither
+  is built**, and that clause must still not be said on camera. `DEMO.md`
+  records it.
 - **Backup demo video.** Non-negotiable before presenting. `DEMO.md` is the
   shot-by-shot runbook; `backend/scripts/preflight.py` verifies the system is
   demo-ready and exits non-zero when it is not.
@@ -383,6 +385,53 @@ readable pseudonymous handle instead.
 
 **`.reqTable` had no CSS anywhere**, so the admin All Requests table rendered as
 a bare browser table. Styled in `admin.css`; both pages benefit.
+
+---
+
+## 6F. Session 2 — the map (cut-line 1, un-cut)
+
+`memory_draft.md` §13 asks the portal for "crisis points, helper positions,
+allocation lines" and §15 for "offline OpenStreetMap tiles, pre-cached". Both
+are now real.
+
+**Tiles are served by our own backend and cached on disk.** `routers/tiles.py`
+proxies OpenStreetMap once and keeps every tile, so after a prefetch the map
+renders with **no internet at all**. Pointing MapLibre straight at
+`tile.openstreetmap.org` would look identical on a good network and fail on the
+one condition this whole project assumes — the venue wifi dying.
+
+OSM's tiles are donated infrastructure and their policy forbids bulk
+downloading, so the prefetch is bounded (`max_tiles`, refusing loudly rather
+than proceeding), serialised with a courtesy delay, sends an identifying
+User-Agent, and caches so a tile is fetched exactly once. **The demo area is
+328 tiles / 3.8 MB** at z10–15 over 8 km.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/tiles/prefetch \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"lat": 13.008, "lon": 80.006, "radius_km": 8, "min_zoom": 10, "max_zoom": 15}'
+
+curl http://localhost:8000/api/v1/tiles/status     # cached_tiles, mb, offline_ready
+```
+
+Run it after reseeding, on the same coordinates. Re-running is cheap — cached
+tiles are skipped. **It is slow on purpose** (~0.06 s per tile) and can outlast
+a client HTTP timeout; the server finishes regardless, so re-run and check
+`status`.
+
+An unreachable upstream returns a transparent tile, never a 500, so the data
+layers still draw over blank ground.
+
+**Candidates now carry coordinates.** `repo_offers._shape` adds `lat`/`lon`,
+which the portal needs to draw them. Deliberately *not* added to the projection
+sent to A4 — that builds its own explicit field list, and coordinates are
+tokens the model has no use for when `distance_km` already says everything it
+argues about.
+
+Verified live: request at 13.009, 80.007 with c1 at 0.44 km and c2 at 4.09 km,
+positions consistent with the distances the solver computed.
+
+`tile_cache/` is git-ignored: megabytes of binary, regenerable in one command.
 
 ---
 

@@ -101,9 +101,18 @@ def _shape(row: dict, i: int) -> dict[str, Any]:
     else:
         name, kind, reliability, load = owner["id"], "unknown", 0.5, 0.5
 
+    # The supplier's own position, so the portal can draw candidates and
+    # allocation lines (memory_draft.md 13). Deliberately NOT added to the
+    # projection sent to A4 in scripted.py, which lists its fields explicitly:
+    # coordinates are tokens the model has no use for, and distance_km already
+    # carries everything it needs to argue about.
+    coords = (row.get("loc") or {}).get("coordinates") or [None, None]
+
     return {
         "cand_id": f"c{i}",
         "offer_id": row["_id"],
+        "lon": coords[0],
+        "lat": coords[1],
         "owner_kind": owner["kind"],
         "owner_id": owner["id"],
         "name": name,

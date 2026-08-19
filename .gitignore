@@ -25,3 +25,7 @@ local.properties
 service-account.json
 firebase-service-account.json
 **/service-account*.json
+
+# Cached OpenStreetMap tiles. Regenerable with POST /api/v1/tiles/prefetch,
+# and megabytes of binary that would bloat every clone.
+backend/tile_cache/

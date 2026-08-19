@@ -24,7 +24,19 @@ Then, with the demo's actual coordinates:
 cd backend && python scripts/preflight.py --lat <lat> --lon <lon>
 ```
 
-It must print **READY TO RECORD**. It checks the things that fail silently:
+Then warm the map cache for the same coordinates, so it survives the venue wifi:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/tiles/prefetch \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"lat": <lat>, "lon": <lon>, "radius_km": 8, "min_zoom": 10, "max_zoom": 15}'
+curl http://localhost:8000/api/v1/tiles/status
+```
+
+~328 tiles, 3.8 MB, about a minute. It can outlast the client's HTTP timeout;
+the server finishes anyway, so re-run and check `offline_ready`.
+
+The pre-flight must print **READY TO RECORD**. It checks the things that fail silently:
 Mongo connected rather than merely configured, Groq budget above one run,
 fixtures inside the radius ladder, auth actually enforced, and a full live run
 reporting `geo_live: true` with all four LLM agents live.
@@ -170,7 +182,7 @@ Being caught overstating one thing costs more than the feature was worth.
 
 | Do not say | The truth |
 |---|---|
-| "The offline map updates over SMS" | MapLibre was never built (cut-line 1) |
+| "The **app's** offline map updates over SMS" | The **portal** map is real and works offline from cached tiles. The map *inside the Android app* was never built |
 | "Production ready" | Demo-grade auth, no TLS, no real SMS gateway |
 | "Encrypted end to end" | SMS is plaintext. PACT gives minimal disclosure and integrity, not confidentiality (`memory_draft.md` §8.4) |
 | "The verification agent reasons about discrepancies" | A10's LLM branch is cut-line 2; the delivery-code check is deterministic only |
