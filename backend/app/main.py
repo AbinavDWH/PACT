@@ -23,6 +23,9 @@ app.add_middleware(
 )
 
 
+# ═══════════════════════════════════════════════════════
+# EDIT 1: Added latitude / longitude to NeedRequest
+# ═══════════════════════════════════════════════════════
 class NeedRequest(BaseModel):
     organization_id: str
     location_code: str
@@ -30,6 +33,8 @@ class NeedRequest(BaseModel):
     quantity: int
     urgency: str
     source: str = "web"
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class SmsWebhookRequest(BaseModel):
@@ -81,6 +86,18 @@ LOCATION_NAME_MAP = {
     "RA": "Region A", "RB": "Region B", "RC": "Region C",
     "D1": "District North", "D2": "District South",
 }
+
+# ═══════════════════════════════════════════════════════
+# EDIT 2: Chennai demo coordinates (lat, lng) per location code
+# ═══════════════════════════════════════════════════════
+LOCATION_COORDS = {
+    "RA": (13.0499, 80.2824),   # Marina area
+    "RB": (13.0418, 80.2341),   # T. Nagar
+    "RC": (13.0850, 80.2101),   # Anna Nagar
+    "D1": (13.1150, 80.3010),   # Kasimedu (North)
+    "D2": (13.0067, 80.2572),   # Adyar (South)
+}
+CHENNAI_CENTER = (13.0827, 80.2707)
 
 RESOURCE_CODE_TO_NAME = {
     "F": "food_kits", "W": "water_kits", "M": "medical_kits", "T": "tents",
@@ -383,6 +400,9 @@ def finalize_request(rec: dict) -> dict:
     return rec
 
 
+# ═══════════════════════════════════════════════════════
+# EDIT 4: Added Chennai coordinates inside create_request_from_sms
+# ═══════════════════════════════════════════════════════
 def create_request_from_sms(decoded: dict):
     request_type = decoded.get("type")
     if request_type not in ("need", "resource", "status"):
@@ -426,6 +446,11 @@ def create_request_from_sms(decoded: dict):
             status_code=decoded.get("status_code", STATUS_NAME_TO_CODE.get(decoded.get("status"), 0)),
         )
 
+    # Attach Chennai coordinates for map display
+    loc = rec.get("location_code")
+    if loc in LOCATION_COORDS:
+        rec["latitude"], rec["longitude"] = LOCATION_COORDS[loc]
+
     key = (rec["organization_id"], rec["seq"])
     rec["status"] = "duplicate" if key in PROCESSED_SEQS else "pending"
     finalize_request(rec)
@@ -433,10 +458,19 @@ def create_request_from_sms(decoded: dict):
     return rec
 
 
+# ═══════════════════════════════════════════════════════
+# EDIT 3: GPS — prefer real device coords, else Chennai fallback
+# ═══════════════════════════════════════════════════════
 def create_request_from_need(payload: NeedRequest):
     location_code, location_name = location_info(payload.location_code)
     resource_name = map_resource(payload.resource)
     urgency_name = map_urgency(payload.urgency)
+
+    latitude = payload.latitude
+    longitude = payload.longitude
+    if latitude is None or longitude is None or (latitude == 0 and longitude == 0):
+        latitude, longitude = LOCATION_COORDS.get(location_code, CHENNAI_CENTER)
+
     rec = {
         "id": next_request_id(), "type": "need", "seq": next_seq(),
         "organization_id": payload.organization_id.strip().upper(),
@@ -444,6 +478,8 @@ def create_request_from_need(payload: NeedRequest):
         "resource": resource_name, "resource_code": RESOURCE_NAME_TO_CODE.get(resource_name, "U"),
         "quantity": payload.quantity,
         "urgency": urgency_name, "urgency_code": URGENCY_NAME_TO_CODE.get(urgency_name, "M"),
+        "latitude": latitude,
+        "longitude": longitude,
         "source": payload.source if payload.source in ("web", "sms", "android") else "web",
         "payload": model_to_dict(payload),
         "created_at": now_iso(), "reviewed_at": None, "reject_reason": None,
@@ -453,6 +489,9 @@ def create_request_from_need(payload: NeedRequest):
     return rec
 
 
+# ═══════════════════════════════════════════════════════
+# EDIT 5: seed_request now attaches Chennai coordinates
+# ═══════════════════════════════════════════════════════
 def seed_demo_data():
     if REQUESTS:
         return
@@ -468,8 +507,12 @@ def seed_demo_data():
             "id": next_request_id(), "status": "pending", "source": "web",
             "payload": {}, "checksum": None, "created_at": now_iso(),
             "reviewed_at": None, "reject_reason": None,
+            "latitude": None, "longitude": None,
         }
         rec.update(fields)
+        loc = rec.get("location_code")
+        if rec.get("latitude") is None and loc in LOCATION_COORDS:
+            rec["latitude"], rec["longitude"] = LOCATION_COORDS[loc]
         return finalize_request(rec)
 
     seed_request(type="need", seq="001", organization_id="NGO01", source="sms",
@@ -766,6 +809,11 @@ async def create_request(body: HubRequestCreate):
         rec["plan_id"] = body.plan_id.strip().upper()
         rec["status_code"] = body.status_code
 
+    # Bonus: attach Chennai coordinates so web-form requests also appear on the map
+    loc = rec.get("location_code")
+    if loc in LOCATION_COORDS:
+        rec["latitude"], rec["longitude"] = LOCATION_COORDS[loc]
+
     key = (rec["organization_id"], rec["seq"])
     rec["status"] = "duplicate" if key in PROCESSED_SEQS else "pending"
     finalize_request(rec)
@@ -827,15 +875,18 @@ def set_auto_accept(enabled: bool = True):
 def seed_request_hub_on_startup():
     seed_demo_data()
 
+
 # =====================================================================
 # FAKE SMS INBOX (For Android Polling Demo)
 # =====================================================================
 fake_sms_inbox = []
 
+
 @app.get("/api/v1/sms/inbox")
 def get_sms_inbox():
     """Android app polls this to get pending fake SMS messages"""
     return {"messages": fake_sms_inbox}
+
 
 @app.post("/api/v1/sms/clear")
 def clear_sms_inbox():
@@ -843,10 +894,10 @@ def clear_sms_inbox():
     fake_sms_inbox.clear()
     return {"status": "cleared"}
 
+
 @app.post("/api/v1/sms/push")
 def push_fake_sms(payload: dict):
     """Use this to send a fake SMS from backend/web to the Android app"""
-    # Example payload: {"message": "M|008|23.2599,77.4126|CR|9|F300|B4"}
     msg = payload.get("message", "")
     if msg:
         fake_sms_inbox.append(msg)

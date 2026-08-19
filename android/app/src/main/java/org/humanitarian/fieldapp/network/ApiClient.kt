@@ -18,14 +18,14 @@ object ApiClient {
     // CHANNEL 1: NORMAL INTERNET API
     // Used when internet is available (Field Report direct send, M10 sync)
     // ═══════════════════════════════════════════════════════
-    private const val INTERNET_API_URL = "http://10.142.1.0:8000"
+    private const val INTERNET_API_URL = "http://10.142.1.232:8000"
 
     // ═══════════════════════════════════════════════════════
     // CHANNEL 2: SMS GATEWAY (SIMULATED)
     // Used for SMS fallback: sending SMS payloads + polling inbox
     // Can be a DIFFERENT IP/port to simulate a separate telecom gateway
     // ═══════════════════════════════════════════════════════
-    private const val SMS_GATEWAY_URL = "http://10.142.1.186:8000"
+    private const val SMS_GATEWAY_URL = "http://10.142.1.232:8000"
 
     // ───────────── INTERNET CHANNEL ─────────────
 

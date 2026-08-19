@@ -1,36 +1,53 @@
 export type RequestType = "need" | "resource" | "status";
-export type RequestSource = "web" | "sms" | "android";
+
 export type RequestStatus =
-  | "pending" | "accepted" | "rejected" | "duplicate"
-  | "processing" | "matched" | "allocated" | "completed";
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "duplicate"
+  | "processing"
+  | "matched"
+  | "allocated"
+  | "completed";
+
+export type RequestSource = "web" | "sms" | "android";
 
 export interface HubRequest {
   id: string;
   type: RequestType;
-  seq?: string;
+  seq: string;
   organization_id: string;
-  location_code?: string;
-  location_name?: string;
-  resource?: string;
-  resource_code?: string;
-  quantity?: number;
-  urgency?: string;
-  urgency_code?: string;
-  availability?: string;
-  availability_code?: string;
-  plan_id?: string;
-  status_code?: number;
   status: RequestStatus;
   source: RequestSource;
-  payload?: Record<string, unknown>;
-  checksum?: string | null;
+
+  location_code?: string | null;
+  location_name?: string | null;
+  resource?: string | null;
+  resource_code?: string | null;
+  quantity?: number | null;
+
+  urgency?: string | null;
+  urgency_code?: string | null;
+
+  availability?: string | null;
+  availability_code?: string | null;
+
+  plan_id?: string | null;
+  status_code?: number | null;
+
+  // GPS coordinates for the Chennai map
+  latitude?: number | null;
+  longitude?: number | null;
+
   sms_canonical?: string | null;
+  checksum?: string | null;
+  payload?: Record<string, unknown>;
   created_at: string;
   reviewed_at?: string | null;
   reject_reason?: string | null;
 }
 
-export interface PlanAllocation {
+export interface Allocation {
   organization_id: string;
   quantity: number;
   eta_hours: number;
@@ -39,14 +56,14 @@ export interface PlanAllocation {
 export interface Plan {
   plan_id: string;
   request_id?: string | null;
-  resource?: string;
-  resource_code?: string;
-  location_code?: string;
-  location_name?: string;
-  required_quantity?: number;
-  allocated_quantity?: number;
-  allocations: PlanAllocation[];
-  priority?: string;
+  resource: string;
+  resource_code: string;
+  location_code?: string | null;
+  location_name?: string | null;
+  required_quantity: number;
+  allocated_quantity: number;
+  allocations: Allocation[];
+  priority?: string | null;
   status: string;
   created_at: string;
 }
@@ -58,6 +75,10 @@ export interface ActivityEntry {
 }
 
 export const STATUS_CODE_NAMES: Record<number, string> = {
-  0: "assigned", 1: "dispatched", 2: "in_transit",
-  3: "delivered", 4: "blocked", 5: "cancelled",
+  0: "assigned",
+  1: "dispatched",
+  2: "in_transit",
+  3: "delivered",
+  4: "blocked",
+  5: "cancelled",
 };

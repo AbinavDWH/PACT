@@ -97,7 +97,13 @@ export default function RequestsPage() {
               Every request — web, SMS, or Android — flows through the same privacy-checked acceptance pipeline.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-[#7c6a58]">
+          <div className="flex items-center gap-3 text-xs text-[#7c6a58]">
+            <a
+              href="/map"
+              className="rounded-full bg-[#FFF2DB] px-4 py-1.5 font-semibold text-[#7c4a12] hover:bg-[#FFE5BF]"
+            >
+              Chennai Map
+            </a>
             <span className={`h-2 w-2 rounded-full ${error ? "bg-red-500" : "animate-pulse bg-green-500"}`} />
             {error ? "Backend unreachable" : lastUpdated ? `Live · updated ${lastUpdated.toLocaleTimeString()}` : "Connecting…"}
           </div>
@@ -125,7 +131,6 @@ export default function RequestsPage() {
 
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
           <RequestTable requests={visible} busyId={busyId} onAccept={onAccept} onReject={onReject} />
-
           <aside className="h-fit rounded-xl border border-[#FFE5BF] bg-white">
             <div className="border-b border-[#FFE5BF] bg-[#FFF2DB] px-4 py-3">
               <h2 className="text-sm font-bold uppercase tracking-wide text-[#7c4a12]">Agent Activity</h2>
