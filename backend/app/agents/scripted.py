@@ -1,17 +1,24 @@
-"""Scripted pipeline.
+"""The agent pipeline.
 
-Emits the complete event vocabulary from agents.md section 3.2. The LLM-shaped
-agents (triage, advocates, arbiter, narrator) are scripted; the deterministic
-ones are real:
+  A0/A1  intake, dedupe        deterministic
+  A2     triage                Groq
+  A3     geo candidates        deterministic -- real MongoDB $geoNear
+  A4     helper advocates      Groq (one call, all candidates)
+  A5     allocation solver     deterministic -- real greedy fill
+  A6     arbiter               Groq, constrained to an existing option_id
+  A7     privacy redactor      deterministic
+  A8     admin gate            human
+  A9     narrator              Groq
 
-  A3 geo     -- real MongoDB $geoNear against seeded offers
-  A5 solver  -- real greedy fill over whatever A3 actually returned
+The governing rule: the model assigns labels, ranks, chooses among enumerated
+options and writes prose. Every number written to the database is produced by
+Python. The arbiter cannot invent an allocation because it never emits one --
+it returns an option_id that is validated against the solver's option set.
 
-So the numbers on screen come from the database, not from fixtures. When the
-Groq client lands, only the scripted judgement calls get replaced.
-
-Fixtures remain as a fallback for when Mongo is unreachable, because the demo
-must survive venue wifi.
+Every Groq agent has a deterministic fallback in fallbacks.py. If the API is
+slow, rate-limited or returns garbage, an amber error event is emitted and the
+run continues. Likewise Mongo: fixtures stand in when the cluster is
+unreachable, because the demo must survive venue wifi.
 """
 
 from __future__ import annotations
@@ -25,7 +32,11 @@ from uuid import uuid4
 from app.bus import gate
 from app.bus.eventbus import bus
 from app.config import get_settings
+from app.codec.tables import get_tables
 from app.db import repo_matches, repo_offers, repo_requests
+from app.agents import fallbacks
+from app.llm import groq_client, prompts
+from app.llm.schemas import AdvocatesOut, ArbiterOut, NarratorOut, TriageOut
 
 AGENTS = [
     ("a0_intake", "Intake Normalizer"),
@@ -165,21 +176,43 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
         agent="a1_dedupe", run_id=run_id,
     )
 
-    # -- A2 triage (scripted; Groq replaces this) --------------------------
+    # -- A2 triage: Groq --------------------------------------------------
     await bus.publish(trace_id, "agent.entered", {"agent": "a2_triage", "label": "Triage"},
                       agent="a2_triage", run_id=run_id)
-    severity = random.randint(72, 95)
-    tier = "T1" if severity >= 80 else "T2"
-    await _say(
-        trace_id, run_id, "a2_triage",
-        f"Structural collapse with a trapped, injured casualty. Tier {tier}, severity "
-        f"{severity}. Supply need is immediate; time to harm estimated at 4 hours.",
-        {"severity": severity, "tier": tier, "life_threat": tier == "T1",
-         "time_to_harm_hours": 4},
-        confidence=0.84,
-    )
-    await repo_requests.set_triage(trace_id, {"severity": severity, "tier": tier,
-                                              "life_threat": tier == "T1"})
+    await bus.publish(trace_id, "agent.thinking", {"note": "assessing severity"},
+                      agent="a2_triage", run_id=run_id)
+
+    codes = (request.get("decoded") or {}).get("_codes", {})
+    tbl = get_tables()
+    injury_rank = tbl.dim("injury").get("rank", {}).get(codes.get("injury_code", "0"), 0)
+    trapped = codes.get("mobility_code") in tbl.dim("mobility").get("trapped", [])
+    prior = int(request.get("priority_score") or 25)
+
+    triage, used_llm = await groq_client.call_json(
+        prompts.TRIAGE,
+        {"request_id": trace_id,
+         "needs": [n["resource"] for n in (request.get("all_needs") or [])] or [need],
+         "quantity": qty,
+         "people": request.get("people_est") or qty,
+         "injury": (request.get("decoded") or {}).get("injury"),
+         "mobility": (request.get("decoded") or {}).get("mobility"),
+         "hazard": (request.get("decoded") or {}).get("situation"),
+         "vulnerabilities": (request.get("decoded") or {}).get("vulnerability", []),
+         "self_reported_urgency": request.get("urgency"),
+         "deterministic_prior": prior},
+        TriageOut, agent="a2_triage", trace_id=trace_id, run_id=run_id,
+        fallback=lambda: fallbacks.triage(prior, injury_rank, trapped, qty,
+                                          request.get("urgency", "high")),
+        max_tokens=900)
+
+    severity, tier = triage.severity, triage.tier
+    await bus.publish(
+        trace_id, "agent.message",
+        {"text": triage.reasoning or f"Tier {tier}, severity {severity}.",
+         "structured": triage.model_dump(), "confidence": triage.confidence,
+         "llm": used_llm},
+        agent="a2_triage", run_id=run_id)
+    await repo_requests.set_triage(trace_id, triage.model_dump())
 
     # -- A3 geo: REAL $geoNear ---------------------------------------------
     await bus.publish(trace_id, "agent.entered",
@@ -240,36 +273,45 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
     fastest = min(candidates, key=lambda c: c["eta_minutes"])
     biggest = max(candidates, key=lambda c: c["free"])
 
-    for turn_no, c in enumerate(candidates, start=1):
-        covers = c["free"] >= qty
-        if c is biggest and covers:
-            stance, claim = "for", (
-                f"Holds {c['free']} units, enough to cover the whole need alone, "
-                f"reliability {c['reliability']:.2f}.")
-        elif c is fastest:
-            stance, claim = "for", (
-                f"Fastest at {c['eta_minutes']} min and {c['distance_km']} km out"
-                + (f", but only {c['free']} units -- a first wave, not the whole answer."
-                   if not covers else "."))
-        elif c["capacity_load"] > 0.7:
-            stance, claim = "against", (
-                f"Already at {int(c['capacity_load'] * 100)}% capacity load; assigning here "
-                "risks a missed commitment elsewhere.")
-        else:
-            stance, claim = "against", (
-                f"{c['eta_minutes']} min out with {c['free']} units. Slower and smaller "
-                f"than {biggest['name']} on both axes.")
+    # One call carrying all candidates, not N calls: same wall-clock, far fewer
+    # requests against an 8000 tokens/minute ceiling.
+    advocates, adv_llm = await groq_client.call_json(
+        prompts.ADVOCATES,
+        {"need": {"resource": need, "quantity": qty, "tier": tier, "severity": severity},
+         "candidates": [
+             {"cand_id": c["cand_id"], "name": c["name"], "org_type": c.get("org_type"),
+              "owner_kind": c["owner_kind"], "distance_km": c["distance_km"],
+              "eta_minutes": c["eta_minutes"], "free": c["free"],
+              "reliability": c.get("reliability"), "capacity_load": c.get("capacity_load"),
+              "capabilities": c.get("capabilities", [])}
+             for c in candidates]},
+        AdvocatesOut, agent="a4_advocates", trace_id=trace_id, run_id=run_id,
+        fallback=lambda: fallbacks.advocates(candidates, qty),
+        fast=True, max_tokens=1400, stream_tokens=False)
 
+    by_id = {c["cand_id"]: c for c in candidates}
+    fit_by_id: dict[str, int] = {}
+    turn_no = 0
+    for bid in advocates.bids:
+        c = by_id.get(bid.cand_id)
+        if c is None:                       # model named a candidate that does not exist
+            continue
+        fit_by_id[bid.cand_id] = bid.fit
+        turn_no += 1
+        stance = ("for" if bid.recommended_share == "full"
+                  else "against" if bid.recommended_share == "none" else "neutral")
         await bus.publish(
             trace_id, "debate.turn",
-            {"debate_id": debate_id, "turn_no": turn_no, "speaker": f"advocate:{c['cand_id']}",
-             "stance": stance, "claim": claim,
+            {"debate_id": debate_id, "turn_no": turn_no,
+             "speaker": f"advocate:{bid.cand_id}", "stance": stance,
+             "claim": bid.argument,
              "evidence": [{"field": "eta_minutes", "value": c["eta_minutes"]},
-                          {"field": "free", "value": c["free"]}],
-             "rebuts": None},
-            agent="a4_advocates", run_id=run_id,
-        )
-        await _pause(0.15, 0.35)
+                          {"field": "free", "value": c["free"]},
+                          {"field": "fit", "value": bid.fit}]
+                         + [{"field": "risk", "value": r} for r in bid.risk_flags],
+             "rebuts": None, "llm": adv_llm},
+            agent="a4_advocates", run_id=run_id)
+        await _pause(0.1, 0.25)
 
     # -- A5 solver: REAL greedy fill over the real candidates ---------------
     await bus.publish(trace_id, "agent.entered",
@@ -289,9 +331,19 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
                         _greedy(candidates, qty,
                                 key=lambda c: (c["capacity_load"], -c["free"])),
                         qty, need, 0.78)
+    # A4's fit scores steer the ranking; they never set a quantity.
+    if fit_by_id:
+        opt_fit = _option("opt_4", "best_fit",
+                          _greedy(candidates, qty,
+                                  key=lambda c: -fit_by_id.get(c["cand_id"], 50)),
+                          qty, need, 0.80)
+    else:
+        opt_fit = None
 
     seen, options = set(), []
-    for o in (opt_cover, opt_fast, opt_least):
+    for o in (opt_cover, opt_fast, opt_least, opt_fit):
+        if o is None:
+            continue
         sig = tuple((a["owner_id"], a["qty"]) for a in o["allocations"])
         if sig and sig not in seen:      # drop duplicate strategies
             seen.add(sig)
@@ -302,43 +354,56 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
     await bus.publish(trace_id, "options.proposed", {"options": options},
                       agent="a5_solver", run_id=run_id)
 
-    # -- A6 arbiter (scripted judgement over real options) ------------------
+    # -- A6 arbiter: Groq, constrained to an existing option_id -------------
     await bus.publish(trace_id, "agent.entered", {"agent": "a6_arbiter", "label": "Arbiter"},
                       agent="a6_arbiter", run_id=run_id)
-    best = max(options, key=lambda o: (o["coverage_pct"], -o["total_eta"]))
-    chosen = best["option_id"]
+    arb, arb_llm = await groq_client.call_json(
+        prompts.ARBITER,
+        {"need": {"resource": need, "quantity": qty, "tier": tier, "severity": severity},
+         "options": [{"option_id": o["option_id"], "label": o["label"],
+                      "coverage_pct": o["coverage_pct"], "total_eta": o["total_eta"],
+                      "allocations": [{"name": a["name"], "qty": a["qty"],
+                                       "eta_min": a["eta_min"]} for a in o["allocations"]]}
+                     for o in options],
+         "advocate_bids": [{"cand_id": b.cand_id, "fit": b.fit, "argument": b.argument,
+                            "risk_flags": b.risk_flags} for b in advocates.bids]},
+        ArbiterOut, agent="a6_arbiter", trace_id=trace_id, run_id=run_id,
+        fallback=lambda: fallbacks.arbiter(options), max_tokens=1000)
+
+    # The load-bearing guard: the model may only name an option that exists.
+    valid_ids = {o["option_id"] for o in options}
+    if arb.chosen_option_id not in valid_ids:
+        await bus.publish(
+            trace_id, "error",
+            {"code": "INVALID_OPTION_ID", "received": arb.chosen_option_id,
+             "valid": sorted(valid_ids), "fallback_used": True},
+            agent="a6_arbiter", run_id=run_id)
+        arb = fallbacks.arbiter(options)
+        arb_llm = False
+
+    chosen = arb.chosen_option_id
+    best = next(o for o in options if o["option_id"] == chosen)
+
+    for i, t in enumerate(arb.turns, start=turn_no + 1):
+        await bus.publish(
+            trace_id, "debate.turn",
+            {"debate_id": debate_id, "turn_no": i, "speaker": "arbiter",
+             "stance": "neutral", "claim": t.claim, "evidence": [],
+             "rebuts": t.rebuts, "llm": arb_llm},
+            agent="a6_arbiter", run_id=run_id)
+        await _pause(0.1, 0.2)
 
     await bus.publish(
-        trace_id, "debate.turn",
-        {"debate_id": debate_id, "turn_no": len(candidates) + 1, "speaker": "arbiter",
-         "stance": "neutral",
-         "claim": f"Accepting the first-wave argument for {fastest['name']}, rejecting the "
-                  "framing that speed alone settles it.",
-         "evidence": [], "rebuts": "turn:1"},
-        agent="a6_arbiter", run_id=run_id,
-    )
-    await bus.publish(
-        trace_id, "debate.turn",
-        {"debate_id": debate_id, "turn_no": len(candidates) + 2, "speaker": "arbiter",
-         "stance": "for",
-         "claim": f"'{best['label'].replace('_', ' ')}' reaches {best['coverage_pct']}% coverage "
-                  f"in {best['total_eta']} minutes. Coverage outranks speed at this tier.",
-         "evidence": [], "rebuts": f"turn:{len(candidates)}"},
-        agent="a6_arbiter", run_id=run_id,
-    )
-    await _say(
-        trace_id, run_id, "a6_arbiter",
-        f"Choosing '{best['label'].replace('_', ' ')}': {best['coverage_pct']}% of the need met, "
-        f"last arrival at {best['total_eta']} minutes.",
-        {"chosen_option_id": chosen}, confidence=0.77,
-    )
+        trace_id, "agent.message",
+        {"text": arb.justification, "structured": {"chosen_option_id": chosen},
+         "confidence": arb.confidence, "llm": arb_llm},
+        agent="a6_arbiter", run_id=run_id)
     await bus.publish(
         trace_id, "debate.closed",
         {"debate_id": debate_id, "winner": chosen,
-         "dissent": f"{fastest['name']} alone would arrive in {fastest['eta_minutes']} min, "
-                    "at lower coverage."},
-        agent="a6_arbiter", run_id=run_id,
-    )
+         "dissent": arb.dissent or f"{fastest['name']} alone would arrive in "
+                                   f"{fastest['eta_minutes']} min."},
+        agent="a6_arbiter", run_id=run_id)
 
     # -- A7 privacy --------------------------------------------------------
     await bus.publish(trace_id, "agent.entered",
@@ -419,27 +484,42 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
     await bus.publish(trace_id, "agent.entered",
                       {"agent": "a9_narrator", "label": "Narrator"},
                       agent="a9_narrator", run_id=run_id)
-    await _say(
-        trace_id, run_id, "a9_narrator",
-        f"Allocated {sum(a['qty'] for a in final['allocations'])} x {pretty} near {where}. "
-        f"Last arrival in {final['total_eta']} minutes.",
-        {"match_id": match_id},
-    )
+    narrated, nar_llm = await groq_client.call_json(
+        prompts.NARRATOR,
+        {"resource": need, "quantity": sum(a["qty"] for a in final["allocations"]),
+         "area": where, "eta_minutes": final["total_eta"],
+         "coverage_pct": final["coverage_pct"], "unmet": unmet,
+         "helpers": [a["name"] for a in final["allocations"]]},
+        NarratorOut, agent="a9_narrator", trace_id=trace_id, run_id=run_id,
+        fallback=lambda: fallbacks.narrator(need, sum(a["qty"] for a in final["allocations"]),
+                                            where, final["total_eta"]),
+        fast=True, max_tokens=800)
+
+    await bus.publish(
+        trace_id, "agent.message",
+        {"text": narrated.admin_summary,
+         "structured": {"match_id": match_id, "sms_variant": narrated.sms_variant,
+                        "sms_chars": len(narrated.sms_variant)},
+         "llm": nar_llm},
+        agent="a9_narrator", run_id=run_id)
+
     for a in final["allocations"]:
         # Two dispatch paths: orgs route via their portal, individuals direct.
         via = "org portal" if a["owner_kind"] == "org" else "direct to volunteer"
         await bus.publish(
             trace_id, "notify.sent",
             {"channel": "console", "target_masked": f"{a['name']} ({via})",
-             "message": f"Deliver {a['qty']} x {pretty} near {where}. ETA {a['eta_min']} min."},
+             "message": narrated.helper_message
+                        or f"Deliver {a['qty']} x {pretty} near {where}. ETA {a['eta_min']} min."},
             agent="a9_narrator", run_id=run_id,
         )
 
     await bus.publish(
         trace_id, "run.completed",
         {"status": "committed", "match_id": match_id,
-         "ms_total": random.randint(1800, 4200), "groq_calls": 0, "tokens": 0,
-         "scripted": True, "geo_live": live},
+         "llm_agents": {"triage": used_llm, "advocates": adv_llm,
+                        "arbiter": arb_llm, "narrator": nar_llm},
+         "groq": groq_client.stats(), "geo_live": live},
         run_id=run_id,
     )
     return {"status": "committed", "trace_id": trace_id, "match_id": match_id,

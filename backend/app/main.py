@@ -25,6 +25,7 @@ from app.db import mongo
 from app.db import repo_events
 from app.db import seed as db_seed
 from app.db.indexes import ensure_indexes
+from app.llm import groq_client
 from app.routers import admin as admin_router
 from app.routers import ingest as ingest_router
 from app.routers import ws as ws_router
@@ -40,6 +41,9 @@ async def lifespan(app: FastAPI):
     log.info("PACT backend starting")
     log.info("  groq:     %s", "configured" if s.groq_enabled else "NOT configured (scripted only)")
     log.info("  autopilot:%s  gate_timeout=%ss", s.autopilot, s.gate_timeout_s)
+
+    if s.groq_enabled:
+        await groq_client.warmup()
 
     if await mongo.connect():
         await ensure_indexes()
@@ -96,8 +100,9 @@ def health():
         # outage behind a green check.
         "mongo": {"configured": s.mongo_enabled, "connected": mongo.is_healthy()},
         "groq": {"configured": s.groq_enabled, "model": s.groq_model},
-        "mode": "scripted",
+        "mode": "live-agents" if s.groq_enabled else "deterministic-fallback",
         "storage": "mongo" if mongo.is_healthy() else "in-memory fallback",
+        "rate_limit": groq_client.stats(),
     }
 
 

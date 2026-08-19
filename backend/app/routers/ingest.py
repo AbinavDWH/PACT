@@ -103,6 +103,10 @@ async def ingest_payload(payload: str, transport: str, from_number: str | None) 
                 "lon": d.get("longitude"),
                 "uid": d.get("uid"),
                 "source": source,
+                # Without this the triage agent reasons over nulls -- the whole
+                # point of the codec is that these selections reach the agents.
+                "decoded": d,
+                "people_est": d.get("people_est"),
                 "all_needs": needs,
                 "priority_score": result["priority_score"],
             }

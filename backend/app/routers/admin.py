@@ -20,6 +20,7 @@ from app.config import get_settings
 from app.db import mongo, repo_events, repo_matches, repo_requests
 from app.db import seed as db_seed
 from app.deps import check_admin_credentials, current_admin, issue
+from app.llm import groq_client
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"],
                    dependencies=[Depends(current_admin)])
@@ -130,7 +131,8 @@ def stats():
         "groq": s.groq_enabled,
         "autopilot": s.autopilot,
         "gate_timeout_s": s.gate_timeout_s,
-        "mode": "scripted",
+        "mode": "live-agents" if s.groq_enabled else "deterministic-fallback",
+        "rate_limit": groq_client.stats(),
     }
 
 
