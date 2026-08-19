@@ -22,6 +22,13 @@ function qtyLabel(r: HubRequest): string {
   return r.quantity != null ? String(r.quantity) : "—";
 }
 
+function gpsLabel(r: HubRequest): string {
+  if (typeof r.latitude === "number" && typeof r.longitude === "number" && (r.latitude !== 0 || r.longitude !== 0)) {
+    return `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`;
+  }
+  return "—";
+}
+
 export default function RequestTable({ requests, busyId, onAccept, onReject }: Props) {
   return (
     <div className="overflow-x-auto rounded-xl border border-[#FFE5BF] bg-white">
@@ -32,6 +39,7 @@ export default function RequestTable({ requests, busyId, onAccept, onReject }: P
             <th className="px-4 py-3">Type</th>
             <th className="px-4 py-3">Org</th>
             <th className="px-4 py-3">Location</th>
+            <th className="px-4 py-3">GPS Coordinates</th>
             <th className="px-4 py-3">Resource</th>
             <th className="px-4 py-3">Qty / Detail</th>
             <th className="px-4 py-3">Priority</th>
@@ -43,7 +51,7 @@ export default function RequestTable({ requests, busyId, onAccept, onReject }: P
         <tbody>
           {requests.length === 0 && (
             <tr>
-              <td colSpan={10} className="px-4 py-10 text-center text-[#a1866f]">
+              <td colSpan={11} className="px-4 py-10 text-center text-[#a1866f]">
                 No requests in this view.
               </td>
             </tr>
@@ -65,6 +73,9 @@ export default function RequestTable({ requests, busyId, onAccept, onReject }: P
                 {r.location_name && r.location_name !== r.location_code && (
                   <div className="text-[11px] text-[#a1866f]">{r.location_name}</div>
                 )}
+              </td>
+              <td className="px-4 py-3 font-mono text-[11px] text-[#4a3a28]">
+                {gpsLabel(r)}
               </td>
               <td className="px-4 py-3">{resourceLabel(r)}</td>
               <td className="px-4 py-3">{qtyLabel(r)}</td>

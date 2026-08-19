@@ -3,6 +3,7 @@ package org.humanitarian.fieldapp.network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.humanitarian.fieldapp.models.FieldReport
+import org.humanitarian.fieldapp.models.OrgRequest
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -18,14 +19,14 @@ object ApiClient {
     // CHANNEL 1: NORMAL INTERNET API
     // Used when internet is available (Field Report direct send, M10 sync)
     // ═══════════════════════════════════════════════════════
-    private const val INTERNET_API_URL = "http://10.142.1.232:8000"
+    private const val INTERNET_API_URL = "http://10.142.1.84:8000"
 
     // ═══════════════════════════════════════════════════════
     // CHANNEL 2: SMS GATEWAY (SIMULATED)
     // Used for SMS fallback: sending SMS payloads + polling inbox
     // Can be a DIFFERENT IP/port to simulate a separate telecom gateway
     // ═══════════════════════════════════════════════════════
-    private const val SMS_GATEWAY_URL = "http://10.142.1.232:8000"
+    private const val SMS_GATEWAY_URL = "http://10.142.1.84:8000"
 
     // ───────────── INTERNET CHANNEL ─────────────
 
@@ -161,6 +162,82 @@ object ApiClient {
                 ApiResult.Success("cleared")
             } catch (e: Exception) {
                 ApiResult.Error(e.message ?: "Clear failed")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    // ───────────── REAL-TIME LOCATION + STATUS POLLING ─────────────
+
+    // Send live GPS to backend every 10 seconds
+    suspend fun postLocationUpdate(organizationId: String, lat: Double, lng: Double): ApiResult<String> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$INTERNET_API_URL/api/v1/location/update")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+
+                val payload = JSONObject()
+                    .put("organization_id", organizationId)
+                    .put("latitude", lat)
+                    .put("longitude", lng)
+
+                connection.outputStream.use { it.write(payload.toString().toByteArray()); it.flush() }
+
+                val code = connection.responseCode
+                if (code in 200..299) ApiResult.Success("ok")
+                else ApiResult.Error("HTTP $code")
+            } catch (e: Exception) {
+                ApiResult.Error(e.message ?: "Location update failed")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    // Poll approval status of this org's requests
+    suspend fun getRequestsByOrg(organizationId: String): ApiResult<List<OrgRequest>> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$INTERNET_API_URL/api/v1/requests/by-org/$organizationId")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+
+                val code = connection.responseCode
+                if (code in 200..299) {
+                    val body = connection.inputStream.bufferedReader().use { it.readText() }
+                    val arr = JSONObject(body).getJSONArray("requests")
+                    val list = mutableListOf<OrgRequest>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        list.add(
+                            OrgRequest(
+                                id = o.optString("id", ""),
+                                type = o.optString("type", ""),
+                                resource = o.optString("resource", ""),
+                                quantity = o.optInt("quantity", 0),
+                                status = o.optString("status", "pending"),
+                                latitude = if (o.isNull("latitude")) null else o.optDouble("latitude"),
+                                longitude = if (o.isNull("longitude")) null else o.optDouble("longitude"),
+                                createdAt = o.optString("created_at", "")
+                            )
+                        )
+                    }
+                    ApiResult.Success(list)
+                } else {
+                    ApiResult.Error("HTTP $code")
+                }
+            } catch (e: Exception) {
+                ApiResult.Error(e.message ?: "Status fetch failed")
             } finally {
                 connection?.disconnect()
             }

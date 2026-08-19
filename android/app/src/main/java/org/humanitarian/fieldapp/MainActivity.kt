@@ -11,6 +11,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import org.humanitarian.fieldapp.network.ApiClient
 import org.humanitarian.fieldapp.ui.FieldReportScreen
 import org.humanitarian.fieldapp.ui.HomeScreen
 import org.humanitarian.fieldapp.ui.MyRequestsScreen
@@ -19,25 +26,29 @@ import org.humanitarian.fieldapp.ui.SmsDecoderScreen
 import org.humanitarian.fieldapp.ui.SmsFallbackScreen
 import org.humanitarian.fieldapp.ui.StatusUpdateScreen
 import org.humanitarian.fieldapp.ui.theme.PactTheme
+import kotlin.coroutines.resume
 
 class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { /* Permissions requested */ }
+    ) { /* result handled silently for hackathon */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. Initialize OSMDroid
+        // OSMDroid init
         org.osmdroid.config.Configuration.getInstance().userAgentValue = packageName
 
-        // 2. Request Location Permissions
+        // Location permissions
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissionLauncher.launch(
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             )
         }
+
+        // START REAL-TIME LOCATION SENDER (every 10 seconds)
+        startRealTimeLocationSender()
 
         setContent {
             PactTheme {
@@ -59,6 +70,29 @@ class MainActivity : ComponentActivity() {
                     "offline_map" -> OfflineMapScreen(onBack = { currentScreen = "home" })
                     "status_update" -> StatusUpdateScreen(onBack = { currentScreen = "home" })
                 }
+            }
+        }
+    }
+
+    private fun startRealTimeLocationSender() {
+        val fused = LocationServices.getFusedLocationProviderClient(this)
+        lifecycleScope.launch {
+            while (true) {
+                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    try {
+                        val location = suspendCancellableCoroutine { cont ->
+                            fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                                .addOnSuccessListener { loc -> cont.resume(loc) }
+                                .addOnFailureListener { cont.resume(null) }
+                        }
+                        if (location != null) {
+                            ApiClient.postLocationUpdate("NGO01", location.latitude, location.longitude)
+                        }
+                    } catch (_: Exception) {
+                        // ignore GPS/network errors silently
+                    }
+                }
+                delay(10_000) // send every 10 seconds
             }
         }
     }

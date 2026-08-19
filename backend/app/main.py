@@ -902,3 +902,52 @@ def push_fake_sms(payload: dict):
     if msg:
         fake_sms_inbox.append(msg)
     return {"status": "pushed", "count": len(fake_sms_inbox)}
+
+
+# =====================================================================
+# REAL-TIME LOCATION TRACKING + ANDROID STATUS POLLING
+# =====================================================================
+
+LIVE_LOCATIONS = {}
+
+
+class LocationUpdate(BaseModel):
+    organization_id: str
+    latitude: float
+    longitude: float
+
+
+@app.post("/api/v1/location/update")
+def update_location(payload: LocationUpdate):
+    """Android sends live GPS every 10 seconds"""
+    org_id = payload.organization_id.strip().upper()
+    LIVE_LOCATIONS[org_id] = {
+        "organization_id": org_id,
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "updated_at": now_iso(),
+    }
+    # Update this org's active requests so the web map marker MOVES live
+    updated = 0
+    for rec in REQUESTS.values():
+        if (rec.get("organization_id") == org_id
+                and rec.get("source") == "android"
+                and rec.get("status") in ("pending", "accepted", "processing", "matched")):
+            rec["latitude"] = payload.latitude
+            rec["longitude"] = payload.longitude
+            updated += 1
+    return {"status": "ok", "organization_id": org_id, "requests_updated": updated}
+
+
+@app.get("/api/v1/locations")
+def list_locations():
+    return {"locations": list(LIVE_LOCATIONS.values())}
+
+
+@app.get("/api/v1/requests/by-org/{organization_id}")
+def requests_by_org(organization_id: str):
+    """Android polls this to show approval status"""
+    org_id = organization_id.strip().upper()
+    items = [r for r in REQUESTS.values() if r.get("organization_id") == org_id]
+    items.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    return {"count": len(items), "requests": items}
