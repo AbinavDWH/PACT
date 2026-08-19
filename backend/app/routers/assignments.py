@@ -12,18 +12,19 @@ your id is the owner on it. `find_allocation` returning None is a 403.
 
 from __future__ import annotations
 
-import hmac
 import logging
-from typing import Any
+import secrets
+from datetime import datetime, timezone
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.bus.eventbus import bus
-from app.config import get_settings
 from app.db import repo_matches, repo_requests
 from app.db.mongo import get_db
 from app.deps import current_org, issue
+from app.security import hash_password, verify_password
 from app.notify import channels, dispatcher
 from app.privacy import crypto
 from app.privacy import policy as privacy_policy
@@ -31,6 +32,15 @@ from app.privacy import redact
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["assignments"])
+
+# Verified against when the username is unknown, so an attacker cannot tell a
+# real account from a fake one by how quickly the login fails. bcrypt's cost is
+# the whole point: skipping it on the miss path leaks account existence.
+_DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _err(code: str, status: str = "error", **extra):
@@ -256,22 +266,97 @@ class OrgLogin(BaseModel):
     password: str
 
 
+class OrgSignup(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    type: Literal["ngo", "government", "csr", "hospital", "ingo_un",
+                  "volunteer_group", "faith_based", "logistics_transport"] = "ngo"
+    username: str = Field(min_length=3, max_length=40, pattern=r"^[a-z0-9_.-]+$")
+    password: str = Field(min_length=8, max_length=72)
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    service_radius_km: int = Field(default=50, ge=1, le=500)
+    capabilities: list[str] = Field(default_factory=list)
+
+
+@router.post("/api/v1/org/signup")
+async def org_signup(body: OrgSignup):
+    """An organization registers itself.
+
+    Until now the only organizations that could exist were the four in the
+    seed, so "multiple organizations" was a fixture rather than a capability.
+
+    The group code is generated here from an alphabet with no O, 0, I or 1,
+    because it gets read aloud over a bad phone line (memory_draft.md 7.3).
+    """
+    db = get_db()
+    if db is None:
+        return _err("NO_DATABASE")
+
+    if await db.organizations.find_one({"web_user": body.username}, {"_id": 1}):
+        return _err("USERNAME_TAKEN")
+
+    org_id = f"ORG_{body.type.upper()}_{secrets.token_hex(3).upper()}"
+    code = await _unique_group_code(db, body.name)
+
+    await db.organizations.insert_one({
+        "_id": org_id,
+        "name": body.name.strip(),
+        "type": body.type,
+        "group_code": code,
+        "web_user": body.username,
+        "web_pass_hash": hash_password(body.password),
+        "base_loc": {"type": "Point", "coordinates": [body.lon, body.lat]},
+        "service_radius_km": body.service_radius_km,
+        "capabilities": body.capabilities,
+        # A new organization has no track record. Starting reliability at a
+        # neutral 0.7 rather than 1.0 keeps A5 from ranking an unknown supplier
+        # above one that has actually delivered.
+        "reliability": 0.7,
+        "capacity_load": 0.0,
+        "status": "active",
+        "self_registered": True,
+        "created_at": _now(),
+    })
+
+    return {"status": "ok", "org_id": org_id, "org_name": body.name,
+            "group_code": code,
+            "token": issue(body.username, "org", org_id)}
+
+
+async def _unique_group_code(db, name: str) -> str:
+    """`XXXX-NNN`, uppercase, no ambiguous characters."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    stem = "".join(c for c in name.upper() if c.isalpha())[:4].ljust(4, "X")
+    stem = "".join(c if c in alphabet else "X" for c in stem)
+    for _ in range(20):
+        tail = "".join(secrets.choice(alphabet) for _ in range(3))
+        code = f"{stem}-{tail}"
+        if not await db.organizations.find_one({"group_code": code}, {"_id": 1}):
+            return code
+    # Astronomically unlikely; fail loudly rather than return a duplicate that
+    # would route another organization's helpers to this one.
+    raise HTTPException(status_code=503, detail="could not allocate a group code")
+
+
 @router.post("/api/v1/org/login")
 async def org_login(body: OrgLogin):
-    """Demo-grade, and described as such (memory_draft.md 7.6). It exists
-    because /ws/org now requires an org token -- previously that socket had no
-    authentication at all while /ws/agents beside it verified one."""
+    """Organization portal sign-in.
+
+    Passwords are bcrypt-verified (`security.py`). This previously compared
+    `body.password` against a shared plaintext value from settings, so every
+    seeded organization had the same password and knowing one was knowing all.
+    """
     db = get_db()
     if db is None:
         return _err("NO_DATABASE")
     org = await db.organizations.find_one({"web_user": body.username})
-    if org is None:
+
+    # Verify against a dummy hash when the username is unknown, so a valid
+    # username cannot be identified by how quickly the request comes back.
+    stored = (org or {}).get("web_pass_hash")
+    if not verify_password(body.password, stored or _DUMMY_HASH) or org is None:
         return _err("BAD_CREDENTIALS")
-    # Seeded organizations carry web_pass_hash: None. Until per-org passwords
-    # are seeded, the shared demo password gates them.
-    expected = org.get("web_pass_hash") or get_settings().pact_org_pass
-    if not hmac.compare_digest(body.password, expected):
-        return _err("BAD_CREDENTIALS")
+
     return {"status": "ok", "token": issue(body.username, "org", org["_id"]),
             "org_id": org["_id"], "org_name": org.get("name"),
             "group_code": org.get("group_code")}

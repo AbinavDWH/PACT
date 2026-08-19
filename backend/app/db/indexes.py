@@ -77,5 +77,13 @@ async def ensure_indexes() -> list[str]:
 
     await idx("locks", [("expires_at", 1)], expireAfterSeconds=LOCK_TTL_S)
 
+    # Sessions. TTL 0 means "expire at the time in this field", so each session
+    # carries its own lifetime -- a 90-day handset token and a 12-hour portal
+    # token live in one collection without a second index.
+    await idx("sessions", [("expires_at", 1)], expireAfterSeconds=0)
+    await idx("sessions", [("sub", 1), ("role", 1)])
+
+    await idx("notifications", [("ts", -1)])
+
     log.info("mongo: ensured %d indexes", len(created))
     return created

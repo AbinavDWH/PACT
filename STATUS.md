@@ -386,6 +386,56 @@ a bare browser table. Styled in `admin.css`; both pages benefit.
 
 ---
 
+## 6E. Session 2 — real authentication
+
+**Passwords are bcrypt-hashed.** `bcrypt` had been in `requirements.txt` since
+the first commit, described as "credential hashing", and was **never called**:
+the admin password was compared against a plaintext env var, and every seeded
+organization shared one plaintext password from settings, so knowing one was
+knowing all four. `app/security.py` now hashes and verifies; seeded orgs carry
+a real `web_pass_hash`. Login verifies against a dummy hash on the miss path,
+so a valid username cannot be identified by response time.
+
+**Sessions survive a restart.** Tokens lived in a module dict. For a portal
+that is a re-login; for a phone in the field it is a dead app with no recovery
+path — the user sees 401s and has no reason to connect them to a server restart
+they never saw. Sessions now persist to a TTL-indexed `sessions` collection and
+are restored into an in-memory cache at startup, which keeps token lookup
+synchronous for the WebSocket handshake.
+
+**Device sessions are long-lived (90 d); portal sessions stay short (12 h).**
+A browser on a shared laptop should expire quickly; a handset belonging to
+someone in a disaster should not, and there is no password to re-enter anyway.
+
+**Organizations can register themselves.** `POST /api/v1/org/signup` with a
+generated group code from the ambiguity-free alphabet. Until now the only
+organizations that could exist were the four in the seed, so "multiple
+organizations" was a fixture rather than a capability. New orgs start at
+reliability 0.7, not 1.0, so an unknown supplier does not outrank one that has
+actually delivered.
+
+**App sign-up remains password-free by design** (`memory_draft.md` §7.1).
+Adding a password there would be a product failure dressed as a security
+improvement.
+
+### Two bugs found by testing this, both silent
+
+1. **`asyncio.create_task` without a strong reference.** The event loop keeps
+   only weak references, so the session write could be garbage-collected
+   mid-flight. Observed: an admin session was never written while a heavier
+   request ran alongside it.
+2. **`/api/v1/admin/login` was `def`, not `async def`.** FastAPI runs sync
+   endpoints in a threadpool with no event loop, so the write was discarded
+   with a `RuntimeError` while the `async def` org login persisted fine — a
+   difference invisible from either endpoint. `_spawn` now falls back to the
+   loop captured at startup, and the endpoint is async.
+
+Verified live: both tokens survive a restart (`auth: 2 session(s) restored`); a
+self-registered org logs in with its own password, is refused the old shared
+one, and gets 403 reading another org's roster.
+
+---
+
 ## 6D. Session 2 — removing the simulations
 
 **SMS is no longer simulated.** `/api/v1/sms/webhook` existed with no caller:

@@ -192,11 +192,20 @@ async def seed(reset: bool = True, centre: tuple[float, float] | None = None,
 
     now = datetime.now(timezone.utc)
 
+    # Seeded organizations get a real bcrypt hash of the demo password rather
+    # than `web_pass_hash: None`, which used to make org_login fall back to a
+    # single shared plaintext value -- so knowing one organization's password
+    # was knowing all four.
+    from app.config import get_settings as _settings
+    from app.security import hash_password
+    demo_hash = hash_password(_settings().pact_org_pass)
+
     orgs, helpers, owner_loc = [], [], {}
     for o in ORGANIZATIONS:
         loc = offset_point(centre, *o["offset"])
         owner_loc[o["_id"]] = loc
         orgs.append({**{k: v for k, v in o.items() if k != "offset"},
+                     "web_pass_hash": demo_hash,
                      "base_loc": loc, "created_at": now})
     for h in HELPERS:
         loc = offset_point(centre, *h["offset"])

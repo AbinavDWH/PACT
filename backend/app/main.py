@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.bus import envelope
 from app.bus.eventbus import bus
+from app import deps
 from app.config import get_settings
 from app.db import mongo
 from app.db import repo_events
@@ -57,9 +58,20 @@ async def lifespan(app: FastAPI):
     log.info("  fcm:      %s", "ready" if fcm_state.get("ready")
              else f"unavailable ({fcm_state.get('reason')})")
 
+    # Hash the configured admin password once, so no comparison ever touches
+    # the plaintext.
+    deps.prepare_admin_credentials()
+    # So a session issued from a `def` endpoint -- which FastAPI runs in a
+    # threadpool with no loop of its own -- can still be persisted.
+    deps.bind_loop()
+
     if await mongo.connect():
         await ensure_indexes()
         bus.set_persist(repo_events.persist)
+        # Before serving: a client holding a valid token must not be signed out
+        # by a restart it never saw.
+        restored = await deps.restore()
+        log.info("  auth:     %d session(s) restored", restored)
         # Before any event is published, so replay and ordering stay coherent
         # across a restart.
         envelope.seed_from(await repo_events.max_seq())

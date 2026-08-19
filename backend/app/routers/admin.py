@@ -53,7 +53,7 @@ class SimulateRequest(BaseModel):
 
 
 @public.post("/login")
-def login(payload: LoginRequest):
+async def login(payload: LoginRequest):
     if not check_admin_credentials(payload.username, payload.password):
         return {"status": "error", "error": "BAD_CREDENTIALS"}
     # Demo-grade session, but the token is now actually verified on protected
