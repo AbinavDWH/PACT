@@ -10,3 +10,12 @@ atlas-credentials.env
 secrets/
 node_modules/
 .next/
+
+# Android / Gradle. `build/` matches at any depth; the trailing slash keeps it
+# to directories, so a source file named `build` is unaffected.
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
+.cxx/
