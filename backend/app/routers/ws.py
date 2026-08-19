@@ -17,24 +17,35 @@ from app.bus import gate
 from app.bus.eventbus import bus
 from app.db import repo_events
 from app.deps import verify_ws_token
+from app.privacy import policy as privacy_policy
+from app.privacy import redact
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 
-# Fields an organization must never see, even on its own trace.
-_ORG_BLOCKED_TYPES = {"debate.turn", "debate.opened", "debate.closed", "options.proposed", "agent.token"}
 
+async def _pump(ws: WebSocket, q: asyncio.Queue, audience: str | None = None) -> None:
+    """One bus, two audiences, no second implementation (agents.md 3.5).
 
-async def _pump(ws: WebSocket, q: asyncio.Queue) -> None:
+    `audience=None` is the admin firehose. Anything else goes through the A7
+    projection, which may return None -- meaning the whole event is withheld
+    and never reaches the socket at all. Field redaction alone is not enough:
+    an organization must not learn that a cross-org debate happened.
+    """
     while True:
         ev = await q.get()
+        if audience is not None:
+            ev = redact.project_event(ev, audience, owned=True)
+            if ev is None:
+                continue
         await ws.send_json(ev)
 
 
-async def _serve(ws: WebSocket, topic: str, *, q: asyncio.Queue | None = None) -> None:
+async def _serve(ws: WebSocket, topic: str, *, q: asyncio.Queue | None = None,
+                 audience: str | None = None) -> None:
     if q is None:
         q = bus.subscribe(topic)
-    sender = asyncio.create_task(_pump(ws, q))
+    sender = asyncio.create_task(_pump(ws, q, audience))
     try:
         while True:
             msg = await ws.receive_json()
@@ -82,9 +93,24 @@ async def ws_agents(ws: WebSocket, trace_id: str | None = None, since: int | Non
 
 
 @router.websocket("/ws/org")
-async def ws_org(ws: WebSocket, org_id: str):
+async def ws_org(ws: WebSocket, org_id: str, token: str | None = None):
+    """One organization's slice, through the A7 org-audience projection.
+
+    Two things were wrong here before. It had no authentication at all, while
+    /ws/agents next to it verified a token. And it was silent: the bus only
+    routes to `org:<id>` when an event carries `org_id`, and nothing in the
+    pipeline set it -- so the socket subscribed to a topic no frame reached.
+    notify/dispatcher.py now stamps org_id on the frames an org is entitled to.
+    """
+    if verify_ws_token(token, "org") is None:
+        await ws.close(code=4401)
+        return
     await ws.accept()
-    await ws.send_json({"type": "hello", "payload": {"topic": f"org:{org_id}"}})
-    # TODO: apply the A7 org-audience projection here before sending
-    # (agents.md 3.5). Lands with the organization portal.
-    await _serve(ws, f"org:{org_id}")
+    topic = f"org:{org_id}"
+    await ws.send_json({
+        "type": "hello",
+        "payload": {"topic": topic, "audience": privacy_policy.ORG,
+                    "blocked_event_types": sorted(privacy_policy.blocked_types(
+                        privacy_policy.ORG))},
+    })
+    await _serve(ws, topic, audience=privacy_policy.ORG)

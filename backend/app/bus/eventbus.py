@@ -73,7 +73,30 @@ class EventBus:
         await self.emit(ev)
         return ev
 
-    async def emit(self, ev: dict[str, Any]) -> None:
+    async def publish_org(
+        self,
+        org_id: str,
+        trace_id: str,
+        type_: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        agent: str = "system",
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Emit to ONE organization's topic only.
+
+        `publish()` always fans out to "*" and the trace topic as well, so
+        using it to give each org its own copy of a committed decision would
+        render the same card N times in the admin portal. An org-scoped frame
+        is addressed to exactly one audience and belongs on exactly one topic.
+        """
+        ev = envelope.build(trace_id, type_, payload, agent=agent, run_id=run_id,
+                            org_id=org_id)
+        ev["scope"] = "org"
+        await self.emit(ev, topics=[f"org:{org_id}"])
+        return ev
+
+    async def emit(self, ev: dict[str, Any], topics: list[str] | None = None) -> None:
         if self._delay_ms:
             await asyncio.sleep(self._delay_ms / 1000)
 
@@ -81,9 +104,10 @@ class EventBus:
             # Fire and forget: durability must never gate the live stream.
             asyncio.create_task(self._safe_persist(ev))
 
-        topics = ["*", ev["trace_id"]]
-        if ev.get("org_id"):
-            topics.append(f"org:{ev['org_id']}")
+        if topics is None:
+            topics = ["*", ev["trace_id"]]
+            if ev.get("org_id"):
+                topics.append(f"org:{ev['org_id']}")
 
         for topic in topics:
             for q in list(self._subs.get(topic, ())):

@@ -259,7 +259,28 @@ A field policy matrix, not a model. Audiences: `seeker`, `helper`, `org`, `admin
 | Own allocation justification | summary | yes | yes | yes | yes |
 
 Revelation is a state transition, not a default: `matches.reveal.helper_sees` gains `exact_loc` and
-`contact` only after `decision.committed` **and** helper acceptance.
+`contact` only after `decision.committed` **and** helper acceptance. The single publisher is
+`POST /api/v1/assignments/{match_id}/accept`.
+
+**Implementation** — `app/privacy/`, three passes in this order:
+
+1. **Event-type filtering.** Whole types are dropped per audience *before* any field walk. An
+   organization must not learn that a cross-org debate happened at all; the existence of the
+   argument is itself a disclosure. Advocate and arbiter `agent.message` frames are dropped too,
+   since filtering on type alone would leak the debate through the wrong door.
+2. **Field redaction**, in two sub-passes. Unambiguous key names (`lat`, `phone`, `delivery_code`)
+   are redacted at *any depth*; position-dependent ones (`free`, `qty`) use exact paths. The key
+   pass exists because an exact-path table only redacts where it was told to look — a payload that
+   nests the same data one level deeper sails through. That was a live leak, not a hypothetical.
+3. **Free-text scrubbing.** A9 writes prose, and a coordinate pair inside a sentence is invisible to
+   a path table. The narrator's prompt below *asks* the model not to emit coordinates; A7 does not
+   rely on that, which is the entire reason A7 is deterministic.
+
+`HIDDEN` removes the key rather than nulling it: a null looks like missing data, an absent key is a
+visible redaction. Unknown audience names fail **closed**, to the strictest policy.
+
+A7 publishes counts measured off the real payload, not a fixed list. If a rule stops matching, the
+count drops and the portal shows it.
 
 ### 2.8 A8 — Admin Gate
 
@@ -290,7 +311,7 @@ WebSocket frame; both funnel into `resolve()`.
 | Action | Effect |
 |---|---|
 | `approve` | Proceed to A9 with the arbiter's chosen option |
-| `override` | Re-enter at **A5** with the admin's allocations pinned; the solver validates feasibility before committing |
+| `override` | **As built:** switch to another `option_id` from the solver's set. The `allocations` array is accepted, audited, and then *not applied* — re-entering at A5 with admin allocations pinned is unimplemented. See `STATUS.md` §6 |
 | `reject` | Re-enter at **A3** with the rejected helper excluded from candidates |
 | `auto_approve` | Timeout path, identical to approve, tagged as unattended in `admin_actions` |
 
@@ -311,6 +332,21 @@ Dispatch then follows the routing rule from `memory_draft.md`:
 allocation owner is an ORG        -> org web portal -> IT team assigns a named helper -> helper's app
 allocation owner is an INDIVIDUAL -> straight to that volunteer's app
 ```
+
+`app/notify/dispatcher.py`. The two paths differ in behaviour, not wording:
+
+| | organization | individual volunteer |
+|---|---|---|
+| channel | `portal` | `push` |
+| initial allocation state | `awaiting_assignment` | `pending_accept` |
+| acceptable immediately | **no** | yes |
+
+The org path's intermediary is enforced: `POST /assignments/{id}/accept` on an `awaiting_assignment`
+allocation returns `NOT_ASSIGNED`, and `POST /org/assignments/{id}/assign` rejects a helper who is
+not on that org's roster with `NOT_ON_YOUR_ROSTER`. That is what the group code buys.
+
+There is no FCM project and no SMS gateway account, so every channel writes to `GET
+/api/v1/sms/outbox` instead of pretending to send (cut-line 5).
 
 ### 2.10 A10 — Verification
 
@@ -448,7 +484,13 @@ async def ws_agents(ws: WebSocket, trace_id: str | None = None,
 
 `WS /ws/org` reuses the same bus and envelope, but subscribes to the `org:{org_id}` topic and passes
 every frame through the A7 org-audience projection before sending. **One bus, two audiences, no
-second implementation.**
+second implementation.** It requires an `org`-role token (`POST /api/v1/org/login`).
+
+Frames reach that topic two ways: `publish(..., org_id=...)`, which also fans out to the admin
+firehose; and `publish_org()`, which emits to **one org topic only**. Per-organization copies of a
+committed decision must use the latter — `publish()` would render the same card once per
+organization in the admin portal. Org-scoped frames are tagged `scope: "org"` and excluded from
+admin replay for the same reason. Each copy carries only that organization's own allocation.
 
 Clients reconnect with `?since=<seq>` and replay the gap from `agent_events`.
 
@@ -653,6 +695,11 @@ the headers rather than trusting this table.
 
 ## 6. API Surface
 
+This section is the **design target**. `STATUS.md` §4 lists what is actually mounted and is the
+authority on that. As of the last update: the transport, admin, assignment and organization
+endpoints below are built; `/session/*`, `/helpers/join`, `/helpers/me/offers`, the seeker-facing
+`/requests/*` routes and the SSE stream are not.
+
 ### 6.1 App — Seeker
 
 | Method | Path | Request | Response |
@@ -743,8 +790,7 @@ backend/
     main.py                  app factory, CORS, lifespan (Mongo, Groq warmup, seed)
     config.py                pydantic-settings: MONGO_URI, GROQ_API_KEY, PACT_ADMIN_USER/PASS,
                              GATE_TIMEOUT_S, AUTOPILOT
-    deps.py                  get_db, current_admin, current_org, current_device
-    models/                  common, request, helper, organization, match, events, admin
+    deps.py                  token issue/verify, current_admin, current_org, verify_ws_token
     db/
       mongo.py               Motor client singleton
       indexes.py             ensure_indexes(), including 2dsphere and TTL
@@ -760,23 +806,25 @@ backend/
       prompts.py             every system prompt as a constant
       schemas.py             Pydantic output schema per agent
     agents/
-      base.py                Agent protocol; emits entered/message automatically
-      a0_intake.py ... a11_replanner.py
-      pipeline.py            graph orchestration, RunContext, per-agent try/except
+      scripted.py            the pipeline; one function, A0 -> A9 in order
+      dedupe.py              A1: geohash7 + resource + 15-minute window
       fallbacks.py           deterministic stand-in for every LLM agent
-    codec/                   see codec.md §9.2
-    sms/
-      parser.py  encoder.py  tables.py
+    codec/                   see codec.md §9.2; also holds geohash encode/decode
     privacy/
-      policy.py              the audience field matrix
-      redact.py  crypto.py   phone hashing, field encryption
+      policy.py              the audience x field matrix, DATA ONLY
+      redact.py              projection, free-text scrubbing, measured audit
+      crypto.py              phone hashing, field encryption, masking primitives
     notify/
-      dispatcher.py          fcm.py | sms_out.py | console.py (demo default)
+      dispatcher.py          the two dispatch paths
+      channels.py            push | portal | sms, all writing to the outbox
     routers/
-      health.py  requests.py  helpers.py  org.py  admin.py  sms.py  ws.py
+      admin.py  assignments.py  ingest.py  ws.py
   requirements.txt           fastapi, uvicorn, motor, pydantic-settings, groq,
                              python-dotenv, bcrypt, cryptography
-  scripts/demo_run.py        scripted judge demo: fires six requests on a timer
+  tests/                     test_codec, test_privacy, test_dedupe, test_notify, test_ws_org
+
+Not built: `models/` (Pydantic lives beside its router), `sms/` (the split was
+never needed -- codec/ covers it), `scripts/demo_run.py`.
 
 web/src/app/
   login/page.tsx

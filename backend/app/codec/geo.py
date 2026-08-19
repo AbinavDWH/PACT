@@ -98,3 +98,101 @@ def decode_geo(token: str) -> GeoPoint | None:
         return GeoPoint(0.0, 0.0, form="location_code", location_code=t)
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Geohash -- used for clustering, not for the wire
+# ---------------------------------------------------------------------------
+# PACK10 above is the transport encoding. This is different: a prefix-shareable
+# cell id, so "two reports from the same collapsed building" is a string
+# comparison rather than a distance query (A1 dedupe, agents.md 2.1).
+#
+#   precision 5 ~ 4.9 km    6 ~ 1.2 km    7 ~ 153 m    8 ~ 38 m
+#
+# A1 uses 7: tight enough that two different buildings do not collide, loose
+# enough that two phones in the same courtyard do.
+
+_B32 = "0123456789bcdefghjkmnpqrstuvwxyz"      # no a/i/l/o
+
+
+def geohash_encode(lat: float, lon: float, precision: int = 7) -> str:
+    lat_lo, lat_hi = -90.0, 90.0
+    lon_lo, lon_hi = -180.0, 180.0
+    out: list[str] = []
+    bits, ch, even = 0, 0, True
+
+    while len(out) < precision:
+        # `>=`, not `>`: a value exactly on a midpoint goes to the UPPER half.
+        # That is the reference convention, and it is why geohash(0, 0) is
+        # "s0000..." rather than the adjacent "7zzzz...". Getting this backwards
+        # still round-trips correctly, so only a cross-check against another
+        # implementation catches it.
+        if even:
+            mid = (lon_lo + lon_hi) / 2
+            if lon >= mid:
+                ch = (ch << 1) | 1
+                lon_lo = mid
+            else:
+                ch <<= 1
+                lon_hi = mid
+        else:
+            mid = (lat_lo + lat_hi) / 2
+            if lat >= mid:
+                ch = (ch << 1) | 1
+                lat_lo = mid
+            else:
+                ch <<= 1
+                lat_hi = mid
+        even = not even
+        bits += 1
+        if bits == 5:
+            out.append(_B32[ch])
+            bits, ch = 0, 0
+
+    return "".join(out)
+
+
+def geohash_neighbours(gh: str) -> list[str]:
+    """The cell plus its eight neighbours.
+
+    Without this, dedupe has an edge problem: two phones twenty metres apart
+    but either side of a cell boundary produce different geohashes and both
+    requests go through. Recomputing at the cell centre offsets is cruder than
+    proper base-32 neighbour arithmetic but has no boundary blind spot.
+    """
+    if not gh:
+        return []
+    p = len(gh)
+    lat, lon, dlat, dlon = geohash_decode(gh)
+    out = {gh}
+    for i in (-1, 0, 1):
+        for j in (-1, 0, 1):
+            out.add(geohash_encode(lat + i * dlat * 2, lon + j * dlon * 2, p))
+    return sorted(out)
+
+
+def geohash_decode(gh: str) -> tuple[float, float, float, float]:
+    """Returns (lat_centre, lon_centre, lat_err, lon_err)."""
+    lat_lo, lat_hi = -90.0, 90.0
+    lon_lo, lon_hi = -180.0, 180.0
+    even = True
+    for c in gh.lower():
+        idx = _B32.find(c)
+        if idx < 0:
+            raise ValueError(f"bad geohash character: {c}")
+        for mask in (16, 8, 4, 2, 1):
+            if even:
+                mid = (lon_lo + lon_hi) / 2
+                if idx & mask:
+                    lon_lo = mid
+                else:
+                    lon_hi = mid
+            else:
+                mid = (lat_lo + lat_hi) / 2
+                if idx & mask:
+                    lat_lo = mid
+                else:
+                    lat_hi = mid
+            even = not even
+    return ((lat_lo + lat_hi) / 2, (lon_lo + lon_hi) / 2,
+            (lat_hi - lat_lo) / 2, (lon_hi - lon_lo) / 2)

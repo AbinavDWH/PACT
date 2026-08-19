@@ -27,6 +27,7 @@ from app.db import seed as db_seed
 from app.db.indexes import ensure_indexes
 from app.llm import groq_client
 from app.routers import admin as admin_router
+from app.routers import assignments as assignments_router
 from app.routers import ingest as ingest_router
 from app.routers import ws as ws_router
 
@@ -82,6 +83,7 @@ app.include_router(ws_router.router)
 app.include_router(admin_router.public)
 app.include_router(admin_router.router)
 app.include_router(ingest_router.router)
+app.include_router(assignments_router.router)
 
 
 @app.get("/")

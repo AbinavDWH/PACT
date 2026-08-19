@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from app.agents import dedupe
 from app.db.mongo import get_db
 
 log = logging.getLogger(__name__)
@@ -63,6 +64,9 @@ async def create(request: dict[str, Any], decoded: dict[str, Any] | None = None,
         "decoded": decoded,
         "loc": _point(lat, lon),
         "loc_masked": _mask(lat, lon),
+        # geohash7:resource. Indexed, and what A1 clusters on -- so it has to
+        # be written here, before A1 runs, or every request is its own island.
+        "dedupe_key": dedupe.dedupe_key(lat, lon, request.get("need") or "unknown"),
         "line_items": needs or [],
         "need": request.get("need"),
         "quantity": request.get("quantity"),
@@ -87,6 +91,31 @@ async def set_status(request_id: str, status: str, **extra) -> None:
             {"$set": {"status": status, "updated_at": _now(), **extra}})
     except Exception:
         log.debug("request status update skipped", exc_info=True)
+
+
+async def link_cluster(request_id: str, verdict: dict[str, Any]) -> None:
+    """Record A1's cluster verdict on the request.
+
+    Deliberately does NOT change `status`. A clustered request stays live and
+    is still allocated for; the link exists so an operator can see the two
+    reports side by side and so A11 can collapse them if the first delivery
+    covers both.
+    """
+    db = get_db()
+    if db is None:
+        return
+    try:
+        await db.requests.update_one(
+            {"_id": request_id},
+            {"$set": {"cluster": {
+                "duplicate": verdict.get("duplicate"),
+                "size": verdict.get("cluster_size"),
+                "geohash": verdict.get("geohash"),
+                "of": [m["request_id"] for m in verdict.get("matches", [])],
+                "at": _now(),
+            }}})
+    except Exception:
+        log.debug("cluster link skipped", exc_info=True)
 
 
 async def set_triage(request_id: str, triage: dict[str, Any]) -> None:

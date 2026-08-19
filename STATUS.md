@@ -47,10 +47,10 @@ an `option_id`, validated against the solver's set.
 |---|---|---|
 | 1 | Event bus, WebSocket, portal, MongoDB, seed, geo, solver | **Complete** |
 | 2 | Codec: tables, Python + Kotlin, vectors, ingest | **Complete** |
-| 3 | Real Groq agents | **~70%** — see §6 |
+| 3 | Real Groq agents + A1, A7, reveal, notify | **Complete** — see §5 |
 | 4 | Android app | Not started (toolchain ready) |
-| 5 | Organization portal | Not started |
-| 6 | A10 verification, A11 replanner | Endpoints only, no agents |
+| 5 | Organization portal | Backend + `/ws/org` done; no `/org/*` UI |
+| 6 | A10 verification, A11 replanner | Endpoints + decline trigger; no SLA timers |
 | 7 | Polish, backup video, pitch | Not started |
 
 ---
@@ -65,7 +65,17 @@ POST  /api/v1/pact/ingest              codec string over HTTP
 POST  /api/v1/sms/webhook              thin adapter -> same path
 POST  /api/v1/sms/simulate             portal simulator
 WS    /ws/agents                       admin firehose, token-authenticated
-WS    /ws/org                          org slice (NOT yet redacted - see §6)
+WS    /ws/org                          org slice, token-authenticated, A7-redacted
+GET   /api/v1/sms/outbox               what would have been sent (no gateway)
+POST  /api/v1/assignments/{id}/accept  THE privacy.reveal trigger
+POST  /api/v1/assignments/{id}/decline triggers A11
+POST  /api/v1/assignments/{id}/status  feeds A10 delivery-code check
+GET   /api/v1/helpers/me/assignments   per-row helper_pre / helper_post view
+POST  /api/v1/org/login                issues an org-role token
+GET   /api/v1/org/assignments          own slice, org-audience projection
+POST  /api/v1/org/assignments/{id}/assign   name a helper from the roster
+GET   /api/v1/org/roster               helpers who joined with the group code
+GET   /api/v1/org/group-code
 POST  /api/v1/admin/login              static creds, issues a real token
 POST  /api/v1/admin/decisions/{id}/action
 POST  /api/v1/admin/simulate
@@ -115,11 +125,23 @@ WebSocket clients reconnect with `?since=<seq>` and replay from `agent_events`.
 startup and logs `geo: ok (nearest offer 1.04 km)`; if coordinates were ever
 stored flipped it would report thousands of km.
 
+### Tests
+
+**161 Python tests pass.** `cd backend && python -m pytest tests/ -q`
+
+| File | Count | Covers |
+|---|---|---|
+| `test_codec.py` | 75 | The wire format, both directions |
+| `test_privacy.py` | 56 | A7. Every test asserts on **absence** — a privacy test that only checks "admin sees everything" proves nothing |
+| `test_dedupe.py` | 20 | Geohash against three published vectors, plus cluster behaviour |
+| `test_notify.py` | 10 | The two dispatch paths differ in channel, state and acceptability |
+| `test_ws_org.py` | 10 | Org socket auth, projection, and bus topic routing |
+
+Plus **7 Kotlin tests, 11 vectors byte-identical to Python** —
+`source android/env.sh && cd android && gradle :codec:test`
+
 ### Codec — `backend/app/codec/`, `shared/codec/`
 
-- **75 Python tests pass.** `cd backend && python -m pytest tests/ -q`
-- **7 Kotlin tests pass, 11 vectors byte-identical to Python.**
-  `source android/env.sh && cd android && gradle :codec:test`
 - Single source of truth: `shared/codec/pact_tables.v1.json`, self-validating
   (field widths must sum to the declared payload length).
 - Verified end to end: the *same* string over HTTP and SMS produces identical
@@ -150,17 +172,75 @@ model ids with `client.models.list()` before assuming.
 | Agent | Implementation |
 |---|---|
 | A0 Intake | Deterministic — **thin, mostly announces work the codec already did** |
-| A1 Dedupe | **FAKE — see §6** |
+| A1 Dedupe | **Real** geohash7 + resource + 15-min window, queried against `requests` |
 | A2 Triage | **Real Groq**, reasons over the codec selections |
 | A3 Geo | **Real** `$geoNear`, radius ladder 10→25→60→150 km |
 | A4 Advocates | **Real Groq**, one call with all candidates |
 | A5 Solver | **Real** greedy fill, weighted by A4 fit scores |
 | A6 Arbiter | **Real Groq**, `option_id` validated against the option set |
-| A7 Privacy | **FAKE — see §6** |
-| A8 Gate | **Real** — approve / override / reject, autopilot timeout, audited |
-| A9 Narrator | **Real Groq** |
-| A10 Verify | Endpoint only, no agent |
-| A11 Replan | Endpoint only; no decline/SLA triggers |
+| A7 Privacy | **Real** field matrix in `app/privacy/`, applied and measured |
+| A8 Gate | **Real** — approve / reject, autopilot timeout, audited. Override picks an option; it does **not** apply custom allocations (§6) |
+| A9 Narrator | **Real Groq** + real dispatch routing in `app/notify/` |
+| A10 Verify | Deterministic delivery-code check on assignment status; no LLM branch |
+| A11 Replan | Admin-forced + **helper-decline trigger**; no SLA timers or T1 preemption |
+
+### A7 — what it actually does
+
+`app/privacy/` is three files and a test suite:
+
+| File | Contents |
+|---|---|
+| `policy.py` | The audience × field matrix, **data only**. 6 audiences × 9 fields, plus per-audience event-type allow-lists and the free-text field list |
+| `redact.py` | Three passes: recursive key-name redaction, structural path redaction, then regex scrubbing of prose |
+| `crypto.py` | `phone_hash` (salted SHA-256, format-stable), Fernet field encryption, and the lossy `mask_*` primitives |
+
+Three passes rather than one, because each catches what the others miss:
+
+1. **Key names, at any depth.** `lat`, `phone`, `delivery_code` and friends are
+   redacted wherever they appear. This is the pass that fails safe when a
+   payload changes shape.
+2. **Structural paths.** For position-dependent fields where the key name alone
+   is ambiguous — `free` and `qty` mean different things in different places.
+3. **Free-text scrubbing.** A9 writes prose, and a coordinate pair inside a
+   sentence is invisible to a path table. The narrator's prompt *asks* it not to
+   include coordinates; A7 does not rely on that.
+
+Event-type filtering runs **before** any field walk. An organization must not
+learn that a cross-org debate happened at all — the existence of the argument
+is itself the disclosure.
+
+A7 publishes **measured** counts off the real payload, not a fixed list. A
+typical run reports ~20–25 field instances redacted with a per-field breakdown.
+If a path stopped matching, the count drops and the portal shows it.
+
+### The reveal transition
+
+`POST /api/v1/assignments/{match_id}/accept` is the only publisher of
+`privacy.reveal`. It moves the helper from the `helper_pre` audience to
+`helper_post`, which is a real change in what the API returns:
+
+| | before accept | after accept |
+|---|---|---|
+| seeker position | `23.26, 77.41` (~1 km) | `23.25991, 77.41263` |
+| contact, name | key absent | present |
+| delivery code | key absent | present |
+
+Verified live on the same match id, either side of one POST.
+
+### The two dispatch paths
+
+Now routing, not a label. `app/notify/dispatcher.py`:
+
+| | organization | individual volunteer |
+|---|---|---|
+| channel | `portal` | `push` |
+| initial state | `awaiting_assignment` | `pending_accept` |
+| acceptable immediately | **no** | yes |
+| intermediary | org IT names a helper | none |
+
+The org path's intermediary is enforced, not described: accepting an
+`awaiting_assignment` allocation returns `NOT_ASSIGNED`. Assigning a helper who
+is not on that org's roster returns `NOT_ON_YOUR_ROSTER`. Both verified live.
 
 Every LLM agent has a deterministic fallback in `agents/fallbacks.py`. Verified:
 when Groq failed, all four degraded and the pipeline still committed valid
@@ -177,46 +257,78 @@ Typical run: **~6 seconds**, all four agents live.
 
 ## 6. Known gaps — read this before claiming anything works
 
-### Step 3 gaps (~2h45m to close)
+### Closed since the last update
 
-**A1 Dedupe is theatre.** It publishes a hardcoded
-`"No duplicate within the 15-minute window at this geohash"` and
-`duplicate: false`. It computes no geohash and checks nothing. Real dedupe
-exists in `routers/ingest.py` on `(uid, seq)`, but that is a different thing —
-two people reporting the same collapsed building from adjacent phones both go
-through. *Est. 30 min.*
+A1, A7, `privacy.reveal`, `notify/` and `/ws/org` are all done and verified by
+running them — see §5. Six further faults were found while closing them; all
+six are fixed and each has a regression test:
 
-**A7 Privacy Redactor is theatre.** It publishes a fixed
-`withheld: [name, phone, exact_loc]` list and **redacts nothing**. There is no
-field-policy matrix and no per-audience projection. `app/privacy/` does not
-exist. The privacy boundary in the portal is currently a caption, not a
-mechanism. **This is the project's headline claim — prioritise it.** *Est. 1 h.*
+1. **The redactor failed open on an unknown audience.** `VISIBLE_TYPES.get()`
+   returned `None` for a typo'd audience name, which was also the *admin*
+   "unrestricted" sentinel. A misspelled audience received the full stream.
+2. **Exact GPS leaked to a pre-acceptance helper.** `GET
+   /helpers/me/assignments` returned `23.25991, 77.41263` with
+   `revealed: false`, because the path table covered `request.lat` and that row
+   nested it at `seeker.lat`. Found by calling the endpoint, not by reading it.
+   Fixed by redacting unambiguous key names at any depth.
+3. **Prose was never redacted.** The field matrix cannot see inside a sentence,
+   so a coordinate pair written by A9 passed straight through. The narrator
+   prompt asks the model not to do that — which is the exact pattern A7 exists
+   to avoid.
+4. **`/ws/org` had no authentication at all**, while `/ws/agents` beside it
+   verified a token. It now requires an `org`-role token, and
+   `POST /api/v1/org/login` exists to issue one.
+5. **`/ws/org` was permanently silent.** The bus only routes to `org:<id>` when
+   an event carries `org_id`, and nothing in the pipeline ever set it.
+   `_ORG_BLOCKED_TYPES` in `routers/ws.py` was a dead constant that read like a
+   working filter.
+6. **`matches.justification` was always `""`.** The pipeline read
+   `best.get("justification")`, a key `_option()` never sets — so the arbiter's
+   rationale was published to the bus and dropped at write time. It also read
+   `best` rather than `final`, so an override recorded the wrong option's
+   reasoning.
 
-**`privacy.reveal` never fires.** Zero publishers. `matches.reveal` exists in
-the schema and nothing ever flips it, because there is no helper-accept
-endpoint. The reveal-on-acceptance transition — the core of the privacy story —
-is unimplemented. *Est. 45 min.*
+### Still open
 
-**`notify/` does not exist.** The "two dispatch paths" (org portal vs individual
-volunteer) is a string label inside the notification message, not actual
-routing. *Est. 30 min.*
+**Admin override does not apply custom allocations.** `POST
+/admin/decisions/{id}/action` accepts an `allocations` array, echoes it into
+`admin.action`, and writes it to the audit trail — then discards it.
+`scripted.py` only reads `option_id`. agents.md §2.8 says override re-enters at
+A5 with the admin's allocations pinned; it does not. **Approve, reject, and
+option-switching all work** — only free-form allocation editing is unimplemented.
+*Est. 45 min.*
 
-**`/ws/org` is unredacted.** It subscribes to the org topic but sends the full
-envelope. There is a TODO in `routers/ws.py`. An organization would currently
-see the cross-org debate it must never see.
+**The event `seq` counter resets on process restart.** It is in-process
+(`bus/envelope.py`), so after a restart fresh events carry lower seq numbers
+than persisted ones. This breaks `?since=` replay ordering and makes
+`/admin/requests` list stale traces first. Cosmetic for a single-session demo,
+wrong across a restart. *Est. 20 min — seed the counter from the max persisted
+seq at startup.*
+
+**A10 has no LLM branch** (cut-line 2, deliberate) and **A11 has no SLA timer
+or T1-preemption trigger** (cut-line 3, deliberate). The decline trigger is
+live.
+
+**No `/org/*` portal UI.** The backend and the redacted socket are done; the
+Next.js routes are not built.
 
 ### Missing modules from `agents.md` §7
 
-`app/privacy/`, `app/notify/`, `app/models/`, `app/sms/` — none exist. Codec
-logic currently lives in `app/codec/` only; the `sms/` split was never needed.
+`app/models/` and `app/sms/` do not exist. Codec logic lives in `app/codec/`
+only; the `sms/` split was never needed. `app/privacy/` and `app/notify/` now
+exist.
 
 ### Not started
 
 - **Android app** (`android/app/`). Only the codec library exists.
 - **Organization portal** (`/org/*` routes).
 - **Offline MapLibre.**
-- **Seeker/helper sign-up endpoints** (`/api/v1/session/signup`, `/helpers/join`,
-  assignment accept/decline). Specified in `agents.md` §6, not implemented.
+- **Seeker/helper sign-up endpoints** (`/api/v1/session/signup`,
+  `/helpers/join`, `/helpers/me/offers`). Assignment accept/decline/status
+  **are** implemented. Because there is no sign-up, `seekers` documents carry
+  no `name_enc`/`phone_enc`, so a post-acceptance reveal currently returns
+  `name: null` — the *transition* is real, the data behind it is not yet
+  captured.
 - **Backup demo video.** Non-negotiable before presenting.
 
 ### Other
@@ -343,22 +455,24 @@ Get-NetTCPConnection -LocalPort 8000 -State Listen |
 
 | Item | Est. |
 |---|---|
-| Close step 3 gaps (A1, A7, reveal, notify) | 2–3 h |
-| Session/signup + helper accept/decline endpoints | 2–3 h |
-| Organization portal + `/ws/org` redaction | 2–3 h |
-| A10 verification agent, A11 real triggers | 1–2 h |
+| Session/signup (`/session/signup`, `/helpers/join`) | 1–2 h |
+| Portal UI for the privacy panel, reveal badge and dispatch route | 1–2 h |
+| Organization portal `/org/*` Next.js routes | 2–3 h |
+| Admin override with custom allocations (§6) | 45 m |
+| `seq` counter seeded from Mongo at startup (§6) | 20 m |
 | Android app: signup, chip screen, GPS, HTTP/SMS transport, outbox | 8–12 h |
 | Offline MapLibre | 2–3 h |
 | Polish, full test pass, **backup video**, pitch | 3–5 h |
 
-**Total 20–31 hours.** For a solo build this does not fit a remaining
-~14–16 coding hours. The Android app is roughly half of it and is the only path
-to the airplane-mode demo moment.
+**Total 16–28 hours.** The Android app is roughly half of it and is the only
+path to the airplane-mode demo moment.
 
-**Suggested order:** close the step 3 gaps (especially A7 — it is the headline
-claim), then decide on Android based on actual remaining time. A mobile-shaped
-web client is a ~3 h substitute for a ~10 h app: same codec, same endpoints,
-loses only "real SMS on a real phone".
+**Suggested order:** the portal UI first — A7, the reveal transition and the
+two dispatch paths are all live in the backend and none of them are visible on
+screen yet, which is the cheapest large gain available. Then decide on Android
+based on actual remaining time. A mobile-shaped web client is a ~3 h substitute
+for a ~10 h app: same codec, same endpoints, loses only "real SMS on a real
+phone".
 
 **Never cut** (per `memory_draft.md` §23): the live WebSocket agent debate, the
 approve/override bar, `$geoNear`, and the three-option arbiter choice.
@@ -367,21 +481,23 @@ approve/override bar, `$geoNear`, and the three-option arbiter choice.
 
 ## 11. Git
 
+Branch `workAbe`.
+
 ```
-f208841 phase 2 (partial)      <- HEAD; steps 1-2 committed
+496c34a phase 3 start          Groq agents, fallbacks, llm/
+f208841 phase 2 (partial)      codec
 179a219 Phase 1 Updated
 d5a2905 Phase 1
 ```
 
-**Uncommitted (the whole of step 3):**
+Step 3 is committed. The A1/A7/reveal/notify work lands on top of `496c34a`.
+
+New modules:
 
 ```
- M backend/app/agents/scripted.py     agents rewired to Groq
- M backend/app/main.py                warmup, honest mode reporting
- M backend/app/routers/admin.py       matches/audit/verify/replan, auth
- M backend/app/routers/ingest.py      decoded passthrough
-?? backend/app/agents/fallbacks.py    deterministic stand-ins
-?? backend/app/llm/                   groq_client, prompts, schemas
+backend/app/privacy/      policy.py, redact.py, crypto.py
+backend/app/notify/       dispatcher.py, channels.py
+backend/app/agents/dedupe.py
+backend/app/routers/assignments.py
+backend/tests/            test_privacy.py, test_dedupe.py, test_notify.py, test_ws_org.py
 ```
-
-Commit before continuing.

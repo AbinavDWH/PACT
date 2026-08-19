@@ -42,9 +42,13 @@ async def create(match_id: str, request_id: str, run_id: str, option: dict[str, 
         "run_id": run_id,
         "option_id": option.get("option_id"),
         "strategy": option.get("label"),
+        # "dispatching", not "assigned": notify/dispatcher.py sets the real
+        # per-allocation state a moment later, and it differs by owner kind.
+        # Writing "assigned" here made an org allocation look accepted before
+        # anyone had even seen it.
         "allocations": [
-            {**a, "state": "assigned", "owner": {"kind": a.get("owner_kind"),
-                                                 "id": a.get("owner_id")}}
+            {**a, "state": "dispatching", "owner": {"kind": a.get("owner_kind"),
+                                                    "id": a.get("owner_id")}}
             for a in option.get("allocations", [])
         ],
         "coverage_pct": option.get("coverage_pct"),
@@ -68,7 +72,11 @@ async def create(match_id: str, request_id: str, run_id: str, option: dict[str, 
 
 async def reveal(match_id: str, to: str) -> list[str]:
     """Privacy state transition: contact and exact position unlock only after
-    an allocation is committed AND the helper accepts."""
+    an allocation is committed AND the helper accepts.
+
+    This is the write that moves a helper from the `helper_pre` audience to
+    `helper_post` in privacy/policy.py. Nothing else in the system flips it.
+    """
     db = get_db()
     fields = ["exact_loc", "contact", "name"]
     if db is None:
@@ -81,6 +89,72 @@ async def reveal(match_id: str, to: str) -> list[str]:
     except Exception:
         log.exception("reveal failed")
     return fields
+
+
+async def is_revealed(match_id: str, to: str = "helper") -> bool:
+    """Which side of the acceptance transition a match is on. Drives the
+    helper_pre / helper_post audience choice at projection time."""
+    m = await get(match_id)
+    if not m:
+        return False
+    key = "helper_sees" if to == "helper" else "seeker_sees"
+    return bool((m.get("reveal") or {}).get(key))
+
+
+async def set_allocation_state(match_id: str, index: int, state: str) -> None:
+    """Per-allocation dispatch state. One match can hold an org allocation
+    awaiting assignment alongside an individual's already acceptable one, so
+    the state cannot live on the match alone."""
+    db = get_db()
+    if db is None:
+        return
+    try:
+        await db.matches.update_one(
+            {"_id": match_id},
+            {"$set": {f"allocations.{index}.state": state, "updated_at": _now()}})
+    except Exception:
+        log.debug("allocation state update skipped", exc_info=True)
+
+
+async def find_allocation(match_id: str, actor_id: str) -> tuple[int, dict] | None:
+    """Locate the allocation an actor is entitled to act on.
+
+    This is the authorization check for accept/decline: you may only act on an
+    allocation you own, or one your organization has assigned to you by name.
+    Returning None is a 403, not a 404.
+
+    The second clause is what completes the org dispatch path: the allocation
+    is owned by the organization, but it is the named helper on the roster who
+    actually accepts it and gets the reveal.
+    """
+    m = await get(match_id)
+    if not m:
+        return None
+    assigned = m.get("assigned_helper_id")
+    for i, a in enumerate(m.get("allocations", [])):
+        owner = a.get("owner") or {}
+        if owner.get("id") == actor_id or a.get("owner_id") == actor_id:
+            return i, a
+        if assigned and assigned == actor_id:
+            return i, a
+    return None
+
+
+async def for_owner(owner_id: str, limit: int = 50,
+                    state: str | None = None) -> list[dict]:
+    """Every match holding an allocation owned by this org or volunteer.
+    Uses the {allocations.owner.id, status} index."""
+    db = get_db()
+    if db is None:
+        return []
+    # Either you own the allocation, or your organization named you on it.
+    # Without the second clause a helper assigned through an org portal would
+    # see an empty assignment list and have nothing to accept.
+    q: dict[str, Any] = {"$or": [{"allocations.owner.id": owner_id},
+                                 {"assigned_helper_id": owner_id}]}
+    if state:
+        q["allocations.state"] = state
+    return await db.matches.find(q).sort("created_at", -1).to_list(limit)
 
 
 async def set_assigned_helper(match_id: str, helper_id: str) -> None:

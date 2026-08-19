@@ -36,7 +36,10 @@ async def replay(trace_id: str | None, since: int, limit: int = 500) -> list[dic
     db = get_db()
     if db is None:
         return []
-    q: dict[str, Any] = {"seq": {"$gt": since}}
+    # Org-scoped frames are per-organization copies of events the admin already
+    # received on the "*" topic. Replaying them to /ws/agents would double every
+    # committed decision by the number of organizations on it.
+    q: dict[str, Any] = {"seq": {"$gt": since}, "scope": {"$ne": "org"}}
     if trace_id and trace_id != "*":
         q["trace_id"] = trace_id
     try:
@@ -55,7 +58,8 @@ async def trace(trace_id: str, limit: int = 1000) -> list[dict[str, Any]]:
     if db is None:
         return []
     rows = await db.agent_events.find(
-        {"trace_id": trace_id}, {"_id": 0, "ts": 0}).sort("seq", 1).to_list(limit)
+        {"trace_id": trace_id, "scope": {"$ne": "org"}},
+        {"_id": 0, "ts": 0}).sort("seq", 1).to_list(limit)
     for r in rows:
         r["ts"] = r.pop("ts_iso", None)
     return rows

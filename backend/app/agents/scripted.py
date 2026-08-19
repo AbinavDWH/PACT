@@ -34,9 +34,12 @@ from app.bus.eventbus import bus
 from app.config import get_settings
 from app.codec.tables import get_tables
 from app.db import repo_matches, repo_offers, repo_requests
-from app.agents import fallbacks
+from app.agents import dedupe, fallbacks
 from app.llm import groq_client, prompts
 from app.llm.schemas import AdvocatesOut, ArbiterOut, NarratorOut, TriageOut
+from app.notify import dispatcher as notify
+from app.privacy import policy as privacy_policy
+from app.privacy import redact
 
 AGENTS = [
     ("a0_intake", "Intake Normalizer"),
@@ -165,16 +168,21 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
     )
 
     # -- A1 dedupe ---------------------------------------------------------
+    # Real geohash7 clustering against open requests (agents/dedupe.py). A
+    # duplicate is linked and reported, never dropped: the cost of discarding
+    # a genuine second casualty is not symmetric with dispatching twice.
     await bus.publish(trace_id, "agent.entered",
                       {"agent": "a1_dedupe", "label": "Dedupe / Cluster"},
                       agent="a1_dedupe", run_id=run_id)
-    await _pause(0.1, 0.3)
+    dup = await dedupe.check(trace_id, request.get("lat"), request.get("lon"),
+                             need, uid=request.get("uid"))
     await bus.publish(
         trace_id, "agent.message",
-        {"text": "No duplicate within the 15-minute window at this geohash.",
-         "structured": {"duplicate": False}},
+        {"text": dedupe.describe(dup), "structured": dup},
         agent="a1_dedupe", run_id=run_id,
     )
+    if dup["duplicate"]:
+        await repo_requests.link_cluster(trace_id, dup)
 
     # -- A2 triage: Groq --------------------------------------------------
     await bus.publish(trace_id, "agent.entered", {"agent": "a2_triage", "label": "Triage"},
@@ -406,15 +414,44 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
         agent="a6_arbiter", run_id=run_id)
 
     # -- A7 privacy --------------------------------------------------------
+    # A deterministic field matrix (privacy/policy.py), run over the real
+    # outbound payload. Every number below is counted off that object, so if
+    # the redactor stopped matching a path the count drops here rather than
+    # the data leaking silently.
     await bus.publish(trace_id, "agent.entered",
                       {"agent": "a7_privacy", "label": "Privacy Redactor"},
                       agent="a7_privacy", run_id=run_id)
+
+    outbound = {
+        "request": {"lat": lat, "lon": lon, "uid": request.get("uid"),
+                    "name": request.get("name"), "phone": request.get("phone"),
+                    "raw_code": request.get("raw_code"),
+                    "decoded": request.get("decoded") or {}},
+        "options": options,
+        "structured": {"candidates": candidates},
+        "justification": arb.justification,
+    }
+    helper_view = redact.audit(outbound, privacy_policy.HELPER_PRE)
+    org_view = redact.audit(outbound, privacy_policy.ORG)
+    removed = helper_view["fields_touched"]
+
     await bus.publish(
         trace_id, "agent.message",
-        {"text": "Helper payload masked: approximate area only. Name and phone withheld "
-                 "pending acceptance.",
-         "structured": {"withheld": ["name", "phone", "exact_loc"],
-                        "shared": ["resource", "quantity", "area", "urgency"]}},
+        {"text": (f"Applied the field policy to the outbound payload: {removed} field "
+                  f"instances redacted for the pre-acceptance helper audience "
+                  f"({len(helper_view['withheld'])} withheld, {len(helper_view['masked'])} "
+                  f"masked to ~1 km). Organizations additionally lose "
+                  f"{len(org_view['event_types_blocked'])} event types, including the "
+                  f"cross-organization debate."),
+         "structured": {
+             # Kept flat for the portal's existing privacy panel.
+             "shared": helper_view["shared"],
+             "withheld": helper_view["withheld"],
+             "masked": helper_view["masked"],
+             "fields_redacted": removed,
+             "by_field": helper_view["by_field"],
+             "audiences": {"helper_pre": helper_view, "org": org_view},
+         }},
         agent="a7_privacy", run_id=run_id,
     )
 
@@ -469,9 +506,13 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
     # -- A9 narrator + dispatch -------------------------------------------
     match_id = f"MATCH-{uuid4().hex[:6].upper()}"
     unmet = max(0, qty - sum(a["qty"] for a in final["allocations"]))
+    # `final`, not `best`: an admin override must record the rationale for the
+    # option that was actually committed. And the arbiter's own justification,
+    # not `final["justification"]` -- _option() never sets that key, so this
+    # column was silently the empty string on every match ever written.
     code = await repo_matches.create(
         match_id, trace_id, run_id, final,
-        justification=best.get("justification", ""),
+        justification=arb.justification,
         approved_by=result.get("admin_id", "autopilot"), unmet=unmet)
     await repo_requests.set_status(trace_id, "allocated", match_id=match_id)
 
@@ -481,6 +522,20 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
          "unmet": unmet, "delivery_code": code},
         agent="a8_gate", run_id=run_id,
     )
+
+    # Per-organization copies, on the org topic only. Each carries ONLY that
+    # organization's own allocation -- an org on a split allocation must not
+    # learn who else was on it (memory_draft.md 7.5). publish_org, not publish,
+    # because publish() would also fan these out to the admin firehose and
+    # render the same card once per organization.
+    for owner_id in {a["owner_id"] for a in final["allocations"]
+                     if a.get("owner_kind") == "org"}:
+        await bus.publish_org(
+            owner_id, trace_id, "decision.committed",
+            {"match_id": match_id,
+             "allocations": [a for a in final["allocations"] if a["owner_id"] == owner_id],
+             "unmet": unmet, "delivery_code": code},
+            agent="a8_gate", run_id=run_id)
     await bus.publish(trace_id, "agent.entered",
                       {"agent": "a9_narrator", "label": "Narrator"},
                       agent="a9_narrator", run_id=run_id)
@@ -503,23 +558,30 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
          "llm": nar_llm},
         agent="a9_narrator", run_id=run_id)
 
-    for a in final["allocations"]:
-        # Two dispatch paths: orgs route via their portal, individuals direct.
-        via = "org portal" if a["owner_kind"] == "org" else "direct to volunteer"
-        await bus.publish(
-            trace_id, "notify.sent",
-            {"channel": "console", "target_masked": f"{a['name']} ({via})",
-             "message": narrated.helper_message
-                        or f"Deliver {a['qty']} x {pretty} near {where}. ETA {a['eta_min']} min."},
-            agent="a9_narrator", run_id=run_id,
-        )
+    # Two dispatch paths, actually routed (notify/dispatcher.py). An org
+    # allocation lands in that org's portal queue and is NOT acceptable until
+    # a named helper is attached; an individual volunteer's is acceptable at
+    # once. The states are written to the match, so the difference is real.
+    routes = []
+    for i, a in enumerate(final["allocations"]):
+        route = await notify.dispatch(
+            match_id=match_id, trace_id=trace_id, run_id=run_id, allocation=a,
+            message=narrated.helper_message
+                    or f"Deliver {a['qty']} x {pretty} near {where}. ETA {a['eta_min']} min.",
+            sms_variant=narrated.sms_variant)
+        routes.append(route)
+        await repo_matches.set_allocation_state(match_id, i, route["state"])
 
     await bus.publish(
         trace_id, "run.completed",
         {"status": "committed", "match_id": match_id,
          "llm_agents": {"triage": used_llm, "advocates": adv_llm,
                         "arbiter": arb_llm, "narrator": nar_llm},
-         "groq": groq_client.stats(), "geo_live": live},
+         "groq": groq_client.stats(), "geo_live": live,
+         "routes": routes, "cluster": {"duplicate": dup["duplicate"],
+                                       "size": dup["cluster_size"]},
+         "privacy": {"fields_redacted": removed,
+                     "audiences": list(privacy_policy.AUDIENCES)}},
         run_id=run_id,
     )
     return {"status": "committed", "trace_id": trace_id, "match_id": match_id,
