@@ -125,27 +125,44 @@ fun FieldReportScreen(onBack: () -> Unit, onReturnHome: () -> Unit) {
         }
     }
 
-    val sendReport: (FieldReport) -> Unit = { report ->
+        val sendReport: (FieldReport) -> Unit = { report ->
         submittedReport = report
         showError = false
         submissionState = "submitting"
         apiMessage = ""
 
         coroutineScope.launch {
-            when (val result = ApiClient.postNeed(report)) {
-                is ApiResult.Success -> {
+            // 1. Try normal internet API first
+            val internetResult = ApiClient.postNeed(report)
+            
+            if (internetResult is ApiResult.Success) {
+                submissionState = "success"
+                apiMessage = "Sent directly via Internet API."
+                smsPayload = ""
+                val needId = try { 
+                    JSONObject(internetResult.data).optString("need_id", "unknown") 
+                } catch (e: Exception) { "unknown" }
+                SubmittedReports.add(context, report, needId)
+            } else {
+                // 2. Internet failed -> Generate SMS Payload
+                val seq = SmsEncoder.nextSequence(
+                    context = context,
+                    organizationId = report.organizationId
+                )
+                val generatedPayload = SmsEncoder.encodeNeed(report = report, seq = seq)
+                smsPayload = generatedPayload
+
+                // 3. SEND DIRECTLY TO SMS GATEWAY (Bypass Queue!)
+                val smsResult = ApiClient.postSmsWebhook(generatedPayload)
+                
+                if (smsResult is ApiResult.Success) {
                     submissionState = "success"
-                    apiMessage = "Online submission successful."
-                    smsPayload = ""
-                    val needId = try { JSONObject(result.data).optString("need_id", "unknown") } catch (e: Exception) { "unknown" }
-                    SubmittedReports.add(context, report, needId)
-                }
-                is ApiResult.Error -> {
-                    val seq = SmsEncoder.nextSequence(context = context, organizationId = report.organizationId)
-                    val generatedPayload = SmsEncoder.encodeNeed(report = report, seq = seq)
-                    smsPayload = generatedPayload
+                    apiMessage = "Sent directly via SMS Gateway!"
+                    // WE DO NOT CALL OfflineQueue.addReport() HERE
+                } else {
+                    // 4. Only use the queue if BOTH Internet and SMS Gateway fail
                     submissionState = "queued"
-                    apiMessage = "Internet unavailable. Report saved to offline queue."
+                    apiMessage = "Both channels failed. Saved to offline queue."
                     OfflineQueue.addReport(context, report, generatedPayload)
                 }
             }

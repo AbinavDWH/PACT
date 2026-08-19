@@ -13,14 +13,27 @@ sealed class ApiResult<out T> {
 }
 
 object ApiClient {
-    // UPDATED IP FOR PHYSICAL DEVICE
-    private const val BASE_URL = "http://10.142.1.202:8000"
+
+    // ═══════════════════════════════════════════════════════
+    // CHANNEL 1: NORMAL INTERNET API
+    // Used when internet is available (Field Report direct send, M10 sync)
+    // ═══════════════════════════════════════════════════════
+    private const val INTERNET_API_URL = "http://10.142.1.0:8000"
+
+    // ═══════════════════════════════════════════════════════
+    // CHANNEL 2: SMS GATEWAY (SIMULATED)
+    // Used for SMS fallback: sending SMS payloads + polling inbox
+    // Can be a DIFFERENT IP/port to simulate a separate telecom gateway
+    // ═══════════════════════════════════════════════════════
+    private const val SMS_GATEWAY_URL = "http://10.142.1.186:8000"
+
+    // ───────────── INTERNET CHANNEL ─────────────
 
     suspend fun postNeed(report: FieldReport): ApiResult<String> {
         return withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
             try {
-                val url = URL("$BASE_URL/api/v1/needs")
+                val url = URL("$INTERNET_API_URL/api/v1/needs")
                 connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "POST"
                 connection.connectTimeout = 8000
@@ -41,7 +54,6 @@ object ApiClient {
                     .put("urgency_code", report.urgencyCode)
                     .put("notes", report.notes)
                     .put("source", "android")
-                    // ATTACH GPS COORDINATES
                     .put("latitude", report.latitude ?: 0.0)
                     .put("longitude", report.longitude ?: 0.0)
 
@@ -67,12 +79,49 @@ object ApiClient {
         }
     }
 
-    // POLL FAKE SMS INBOX FROM BACKEND
+    // ───────────── SMS GATEWAY CHANNEL ─────────────
+
+    suspend fun postSmsWebhook(smsPayload: String): ApiResult<String> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$SMS_GATEWAY_URL/api/v1/sms/webhook")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 8000
+                connection.readTimeout = 8000
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+
+                val payload = JSONObject().put("sms", smsPayload)
+
+                connection.outputStream.use { outputStream ->
+                    outputStream.write(payload.toString().toByteArray())
+                    outputStream.flush()
+                }
+
+                val responseCode = connection.responseCode
+                val responseBody = if (responseCode in 200..299) {
+                    connection.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                }
+
+                if (responseCode in 200..299) ApiResult.Success(responseBody)
+                else ApiResult.Error("HTTP $responseCode: ${responseBody.take(200)}")
+            } catch (exception: Exception) {
+                ApiResult.Error(exception.message ?: "SMS gateway unreachable")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
     suspend fun getSmsInbox(): ApiResult<List<String>> {
         return withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
             try {
-                val url = URL("$BASE_URL/api/v1/sms/inbox")
+                val url = URL("$SMS_GATEWAY_URL/api/v1/sms/inbox")
                 connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 5000
@@ -99,17 +148,16 @@ object ApiClient {
         }
     }
 
-    // CLEAR INBOX AFTER READING
     suspend fun clearInbox(): ApiResult<String> {
         return withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
             try {
-                val url = URL("$BASE_URL/api/v1/sms/clear")
+                val url = URL("$SMS_GATEWAY_URL/api/v1/sms/clear")
                 connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "POST"
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
-                connection.responseCode // Just trigger it
+                connection.responseCode
                 ApiResult.Success("cleared")
             } catch (e: Exception) {
                 ApiResult.Error(e.message ?: "Clear failed")
@@ -119,37 +167,26 @@ object ApiClient {
         }
     }
 
+    // ───────────── MAPPINGS ─────────────
+
     private fun resourceName(code: String): String {
         return when (code) {
-            "F" -> "food_kits"
-            "W" -> "water_kits"
-            "M" -> "medical_kits"
-            "T" -> "tents"
-            "B" -> "blankets"
-            "H" -> "hygiene_kits"
-            "D" -> "medical_teams"
-            else -> "unknown"
+            "F" -> "food_kits"; "W" -> "water_kits"; "M" -> "medical_kits"
+            "T" -> "tents"; "B" -> "blankets"; "H" -> "hygiene_kits"
+            "D" -> "medical_teams"; else -> "unknown"
         }
     }
 
     private fun urgencyName(code: String): String {
         return when (code) {
-            "L" -> "low"
-            "M" -> "medium"
-            "H" -> "high"
-            "C" -> "critical"
-            else -> "unknown"
+            "L" -> "low"; "M" -> "medium"; "H" -> "high"; "C" -> "critical"; else -> "unknown"
         }
     }
 
     private fun locationName(code: String): String {
         return when (code) {
-            "RA" -> "Region A"
-            "RB" -> "Region B"
-            "RC" -> "Region C"
-            "D1" -> "District North"
-            "D2" -> "District South"
-            else -> code
+            "RA" -> "Region A"; "RB" -> "Region B"; "RC" -> "Region C"
+            "D1" -> "District North"; "D2" -> "District South"; else -> code
         }
     }
 }

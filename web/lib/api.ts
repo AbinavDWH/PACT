@@ -1,6 +1,7 @@
 import { ActivityEntry, HubRequest, Plan } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// HARDCODED TO YOUR NETWORK IP FOR HACKATHON DEMO
+const API_URL = "http://localhost:8000"; 
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
