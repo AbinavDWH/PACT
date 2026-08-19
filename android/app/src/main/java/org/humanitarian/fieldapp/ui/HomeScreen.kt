@@ -21,9 +21,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.humanitarian.fieldapp.offline.OfflineQueue
+import org.humanitarian.fieldapp.sync.SyncManager
 import org.humanitarian.fieldapp.ui.theme.PactAccent
 import org.humanitarian.fieldapp.ui.theme.PactBackground
 import org.humanitarian.fieldapp.ui.theme.PactOnPrimary
@@ -41,6 +49,23 @@ fun HomeScreen(
     onNavigateToOfflineMap: () -> Unit,
     onNavigateToStatus: () -> Unit
 ) {
+    val context = LocalContext.current
+    var queueSize by remember { mutableStateOf(OfflineQueue.getQueueSize(context)) }
+    var autoSyncMessage by remember { mutableStateOf("") }
+
+    // Auto-sync whenever the home screen opens.
+    // If internet is back, queued reports are pushed to the backend silently.
+    LaunchedEffect(Unit) {
+        queueSize = OfflineQueue.getQueueSize(context)
+        if (queueSize > 0) {
+            val result = SyncManager.syncQueue(context)
+            if (result.synced > 0) {
+                autoSyncMessage = "${result.synced} queued report(s) synced automatically."
+            }
+            queueSize = OfflineQueue.getQueueSize(context)
+        }
+    }
+
     Scaffold(
         containerColor = PactBackground,
         topBar = {
@@ -81,10 +106,7 @@ fun HomeScreen(
                 color = PactSurface,
                 border = BorderStroke(1.dp, PactAccent)
             ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = "Mission Console",
                         style = MaterialTheme.typography.headlineSmall,
@@ -99,11 +121,42 @@ fun HomeScreen(
                 }
             }
 
+            // OFFLINE QUEUE BANNER
+            if (queueSize > 0) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PactAccent,
+                    border = BorderStroke(1.dp, PactPrimary)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "$queueSize report(s) in offline queue",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = PactTextPrimary
+                        )
+                        Text(
+                            text = "Open SMS Fallback to view payloads or sync when internet returns.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PactTextSecondary
+                        )
+                    }
+                }
+            }
+
+            if (autoSyncMessage.isNotBlank()) {
+                Text(
+                    text = autoSyncMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = PactPrimary
+                )
+            }
+
             Button(
                 onClick = onNavigateToFieldReport,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = PactPrimary,
@@ -117,25 +170,10 @@ fun HomeScreen(
                 )
             }
 
-            HomeActionButton(
-                title = "SMS Fallback",
-                onClick = onNavigateToSmsFallback
-            )
-
-            HomeActionButton(
-                title = "SMS Decoder",
-                onClick = onNavigateToSmsDecoder
-            )
-
-            HomeActionButton(
-                title = "Offline Map",
-                onClick = onNavigateToOfflineMap
-            )
-
-            HomeActionButton(
-                title = "Status Update",
-                onClick = onNavigateToStatus
-            )
+            HomeActionButton(title = "SMS Fallback", onClick = onNavigateToSmsFallback)
+            HomeActionButton(title = "SMS Decoder", onClick = onNavigateToSmsDecoder)
+            HomeActionButton(title = "Offline Map", onClick = onNavigateToOfflineMap)
+            HomeActionButton(title = "Status Update", onClick = onNavigateToStatus)
         }
     }
 }
@@ -147,9 +185,7 @@ private fun HomeActionButton(
 ) {
     OutlinedButton(
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp),
+        modifier = Modifier.fillMaxWidth().height(56.dp),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, PactAccent),
         colors = ButtonDefaults.outlinedButtonColors(

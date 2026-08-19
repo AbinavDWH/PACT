@@ -19,11 +19,10 @@ object OfflineQueue {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    // Updated to accept smsPayload
     fun addReport(context: Context, report: FieldReport, smsPayload: String) {
         val prefs = getPrefs(context)
         val jsonArray = JSONArray(prefs.getString(KEY_REPORTS, "[]"))
-        
+
         val jsonObj = JSONObject()
             .put("organizationId", report.organizationId)
             .put("locationCode", report.locationCode)
@@ -32,17 +31,16 @@ object OfflineQueue {
             .put("urgencyCode", report.urgencyCode)
             .put("notes", report.notes)
             .put("smsPayload", smsPayload)
-            
+
         jsonArray.put(jsonObj)
         prefs.edit().putString(KEY_REPORTS, jsonArray.toString()).apply()
     }
 
-    // Returns QueuedReport objects now
     fun getQueuedReports(context: Context): List<QueuedReport> {
         val prefs = getPrefs(context)
         val jsonArray = JSONArray(prefs.getString(KEY_REPORTS, "[]"))
         val reports = mutableListOf<QueuedReport>()
-        
+
         for (i in 0 until jsonArray.length()) {
             val obj = jsonArray.getJSONObject(i)
             val report = FieldReport(
@@ -59,10 +57,28 @@ object OfflineQueue {
         return reports
     }
 
+    // Rewrites the queue with only the given reports (used after partial sync)
+    fun replaceQueue(context: Context, reports: List<QueuedReport>) {
+        val prefs = getPrefs(context)
+        val jsonArray = JSONArray()
+        for (item in reports) {
+            val jsonObj = JSONObject()
+                .put("organizationId", item.report.organizationId)
+                .put("locationCode", item.report.locationCode)
+                .put("resourceCode", item.report.resourceCode)
+                .put("quantity", item.report.quantity)
+                .put("urgencyCode", item.report.urgencyCode)
+                .put("notes", item.report.notes)
+                .put("smsPayload", item.smsPayload)
+            jsonArray.put(jsonObj)
+        }
+        prefs.edit().putString(KEY_REPORTS, jsonArray.toString()).apply()
+    }
+
     fun clearQueue(context: Context) {
         getPrefs(context).edit().remove(KEY_REPORTS).apply()
     }
-    
+
     fun getQueueSize(context: Context): Int {
         return getQueuedReports(context).size
     }
