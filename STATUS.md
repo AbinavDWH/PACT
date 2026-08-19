@@ -18,6 +18,7 @@ something is unverified or fake, it says so explicitly.
 | `sms.md` | SMS transport: framing, checksums, message types, error codes |
 | `agents.md` | Agent pipeline, prompts, event schema, MongoDB schema, full API surface |
 | `android/README.md` | Android toolchain and device setup |
+| `DEMO.md` | Demo runbook, pre-flight, and what **not** to claim on camera |
 | `STATUS.md` | This file |
 
 **The build order lives in `memory_draft.md` §22.** Cut-lines in §23.
@@ -352,8 +353,12 @@ exist.
 
 ### Not started
 
-- **Offline MapLibre.**
-- **Backup demo video.** Non-negotiable before presenting.
+- **Offline MapLibre.** Cut-line 1. **`memory_draft.md` §24 step 6 still says
+  the app "updates its offline map from the SMS reply" — it does not, and that
+  clause must not be said on camera.** `DEMO.md` records this.
+- **Backup demo video.** Non-negotiable before presenting. `DEMO.md` is the
+  shot-by-shot runbook; `backend/scripts/preflight.py` verifies the system is
+  demo-ready and exits non-zero when it is not.
 
 ---
 
