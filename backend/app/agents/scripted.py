@@ -25,7 +25,7 @@ from uuid import uuid4
 from app.bus import gate
 from app.bus.eventbus import bus
 from app.config import get_settings
-from app.db import repo_offers
+from app.db import repo_matches, repo_offers, repo_requests
 
 AGENTS = [
     ("a0_intake", "Intake Normalizer"),
@@ -129,6 +129,10 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
     where = request.get("location_name", "Region A")
     pretty = need.replace("_", " ")
 
+    await repo_requests.upsert_seeker(request.get("uid"))
+    await repo_requests.create(request, decoded=request.get("decoded"),
+                               needs=request.get("all_needs"))
+
     await bus.publish(
         trace_id, "run.started",
         {"request": request, "masked_summary": f"{qty} x {need} needed near {where}",
@@ -174,6 +178,8 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
          "time_to_harm_hours": 4},
         confidence=0.84,
     )
+    await repo_requests.set_triage(trace_id, {"severity": severity, "tier": tier,
+                                              "life_threat": tier == "T1"})
 
     # -- A3 geo: REAL $geoNear ---------------------------------------------
     await bus.publish(trace_id, "agent.entered",
@@ -215,6 +221,7 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
         await bus.publish(trace_id, "agent.message",
                           {"text": f"No supplier of {pretty} in range. Request unmet."},
                           agent="a5_solver", run_id=run_id)
+        await repo_requests.set_status(trace_id, "unmet")
         await bus.publish(trace_id, "run.completed", {"status": "unmet"}, run_id=run_id)
         return {"status": "unmet", "trace_id": trace_id}
 
@@ -360,6 +367,12 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
         trace_id, decision_id, run_id=run_id,
         timeout_s=settings.gate_timeout_s, autopilot=settings.autopilot,
     )
+    await repo_matches.record_admin_action(
+        decision_id, result.get("action", "unknown"), result.get("admin_id", "admin"),
+        before={"chosen_option_id": chosen},
+        after={"option_id": result.get("option_id") or chosen},
+        note=result.get("note"), trace_id=trace_id)
+
     await bus.publish(
         trace_id, "admin.action",
         {"decision_id": decision_id, "action": result.get("action"),
@@ -372,6 +385,7 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
         await bus.publish(trace_id, "replan.triggered",
                           {"reason": "admin_rejected", "prior_run_id": run_id},
                           agent="a11_replanner", run_id=run_id)
+        await repo_requests.set_status(trace_id, "rejected")
         await bus.publish(trace_id, "run.completed", {"status": "rejected"}, run_id=run_id)
         return {"status": "rejected", "trace_id": trace_id}
 
@@ -389,10 +403,17 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
 
     # -- A9 narrator + dispatch -------------------------------------------
     match_id = f"MATCH-{uuid4().hex[:6].upper()}"
+    unmet = max(0, qty - sum(a["qty"] for a in final["allocations"]))
+    code = await repo_matches.create(
+        match_id, trace_id, run_id, final,
+        justification=best.get("justification", ""),
+        approved_by=result.get("admin_id", "autopilot"), unmet=unmet)
+    await repo_requests.set_status(trace_id, "allocated", match_id=match_id)
+
     await bus.publish(
         trace_id, "decision.committed",
         {"match_id": match_id, "allocations": final["allocations"],
-         "unmet": max(0, qty - sum(a["qty"] for a in final["allocations"]))},
+         "unmet": unmet, "delivery_code": code},
         agent="a8_gate", run_id=run_id,
     )
     await bus.publish(trace_id, "agent.entered",

@@ -75,6 +75,7 @@ app.add_middleware(
 )
 
 app.include_router(ws_router.router)
+app.include_router(admin_router.public)
 app.include_router(admin_router.router)
 app.include_router(ingest_router.router)
 

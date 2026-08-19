@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     autopilot: bool = True
 
     # --- Web credentials ----------------------------------------------------
+    require_auth: bool = True
     pact_admin_user: str = "admin"
     pact_admin_pass: str = "pact-admin"
 

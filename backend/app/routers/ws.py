@@ -16,6 +16,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.bus import gate
 from app.bus.eventbus import bus
 from app.db import repo_events
+from app.deps import verify_ws_token
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -57,7 +58,11 @@ async def _serve(ws: WebSocket, topic: str, *, q: asyncio.Queue | None = None) -
 
 
 @router.websocket("/ws/agents")
-async def ws_agents(ws: WebSocket, trace_id: str | None = None, since: int | None = None):
+async def ws_agents(ws: WebSocket, trace_id: str | None = None, since: int | None = None,
+                    token: str | None = None):
+    if verify_ws_token(token, "admin") is None:
+        await ws.close(code=4401)          # policy violation: unauthenticated
+        return
     await ws.accept()
 
     # Subscribe BEFORE replaying, so events arriving mid-replay are queued

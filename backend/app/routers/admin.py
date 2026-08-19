@@ -10,18 +10,22 @@ import asyncio
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.agents import scripted
 from app.bus import gate
 from app.bus.eventbus import bus
 from app.config import get_settings
-from app.db import mongo
-from app.db import repo_events
+from app.db import mongo, repo_events, repo_matches, repo_requests
 from app.db import seed as db_seed
+from app.deps import check_admin_credentials, current_admin, issue
 
-router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+router = APIRouter(prefix="/api/v1/admin", tags=["admin"],
+                   dependencies=[Depends(current_admin)])
+
+# /login must stay open, so it lives on its own unprotected router.
+public = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 # In-memory run log until Mongo is wired.
 _runs: list[dict[str, Any]] = []
@@ -47,14 +51,14 @@ class SimulateRequest(BaseModel):
     urgency: str = "critical"
 
 
-@router.post("/login")
+@public.post("/login")
 def login(payload: LoginRequest):
-    s = get_settings()
-    ok = payload.username == s.pact_admin_user and payload.password == s.pact_admin_pass
-    if not ok:
+    if not check_admin_credentials(payload.username, payload.password):
         return {"status": "error", "error": "BAD_CREDENTIALS"}
-    # Demo-grade session. Real auth is post-hackathon work (memory_draft 7.6).
-    return {"status": "ok", "token": f"admin-{uuid4().hex[:12]}", "user": payload.username}
+    # Demo-grade session, but the token is now actually verified on protected
+    # endpoints (deps.current_admin). Real auth is post-hackathon work.
+    return {"status": "ok", "token": issue(payload.username, "admin"),
+            "user": payload.username}
 
 
 @router.post("/decisions/{decision_id}/action")
@@ -148,3 +152,79 @@ def update_settings(payload: SettingsPatch):
         bus.set_delay_ms(payload.demo_latency_ms)
     return {"status": "ok", "autopilot": s.autopilot,
             "gate_timeout_s": s.gate_timeout_s, "demo_latency_ms": s.demo_latency_ms}
+
+
+@router.get("/matches")
+async def list_matches(state: str | None = None, limit: int = 50):
+    """Primary view hydration. Survives a portal reload, unlike the event
+    stream alone."""
+    rows = await repo_matches.live(limit, state)
+    for r in rows:
+        r["match_id"] = r.pop("_id", None)
+        # The delivery code is for the seeker and the assigned helper only.
+        r.pop("delivery_code", None)
+    return {"matches": rows, "count": len(rows)}
+
+
+@router.get("/audit")
+async def audit(limit: int = 100):
+    """Append-only record of every approve / override / reject, autopilot
+    included. Never TTL'd."""
+    return {"actions": await repo_matches.audit(limit)}
+
+
+class VerifyRequest(BaseModel):
+    verdict: Literal["verified", "partial", "disputed"] = "verified"
+    qty_delivered: int | None = None
+    note: str | None = None
+    admin_id: str = "admin"
+
+
+@router.post("/matches/{match_id}/verify")
+async def verify_match(match_id: str, payload: VerifyRequest):
+    match = await repo_matches.get(match_id)
+    if match is None:
+        return {"status": "error", "error": "NO_SUCH_MATCH"}
+    await repo_matches.set_status(match_id, payload.verdict,
+                                  qty_delivered=payload.qty_delivered)
+    await repo_matches.record_admin_action(
+        match_id, f"verify:{payload.verdict}", payload.admin_id,
+        before={"status": match.get("status")}, after={"status": payload.verdict},
+        note=payload.note, trace_id=match.get("request_id"))
+    await bus.publish(match.get("request_id", match_id), "verify.result",
+                      {"match_id": match_id, "verdict": payload.verdict,
+                       "qty_delivered": payload.qty_delivered},
+                      agent="a10_verify")
+    return {"status": "ok", "match_id": match_id, "verdict": payload.verdict}
+
+
+class ReplanRequest(BaseModel):
+    reason: str = "admin_forced"
+    admin_id: str = "admin"
+
+
+@router.post("/replan/{request_id}")
+async def replan(request_id: str, payload: ReplanRequest):
+    """Force A11. Re-enters the pipeline under a NEW run_id but the SAME
+    trace_id, so the portal chains the replan under the original request."""
+    db_req = await repo_requests.recent(limit=200)
+    original = next((r for r in db_req if r["_id"] == request_id), None)
+    if original is None:
+        return {"status": "error", "error": "NO_SUCH_REQUEST"}
+
+    await bus.publish(request_id, "replan.triggered",
+                      {"reason": payload.reason, "prior_run_id": None},
+                      agent="a11_replanner")
+    await repo_matches.record_admin_action(
+        request_id, "replan", payload.admin_id, note=payload.reason,
+        trace_id=request_id)
+
+    asyncio.create_task(scripted.run({
+        "request_id": request_id,
+        "need": original.get("need"), "quantity": original.get("quantity"),
+        "location_name": "reported position", "urgency": original.get("urgency"),
+        **({"lat": original["loc"]["coordinates"][1],
+            "lon": original["loc"]["coordinates"][0]} if original.get("loc") else {}),
+        "uid": original.get("seeker_uid"),
+    }))
+    return {"status": "accepted", "trace_id": request_id, "replan": True}

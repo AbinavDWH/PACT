@@ -163,6 +163,41 @@ function reduce(run: Run, ev: Envelope): Run {
   return next;
 }
 
+// Demo credentials. The portal authenticates for real -- the backend rejects
+// an unauthenticated socket with close code 4401 -- but it logs in silently so
+// the demo does not open on a login form.
+const ADMIN_USER = process.env.NEXT_PUBLIC_ADMIN_USER ?? "admin";
+const ADMIN_PASS = process.env.NEXT_PUBLIC_ADMIN_PASS ?? "pact-admin";
+
+let tokenPromise: Promise<string | null> | null = null;
+
+export function getAdminToken(): Promise<string | null> {
+  if (!tokenPromise) {
+    tokenPromise = fetch(`${API_BASE}/api/v1/admin/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: ADMIN_USER, password: ADMIN_PASS }),
+    })
+      .then((r) => r.json())
+      .then((j: { status?: string; token?: string }) =>
+        j.status === "ok" && j.token ? j.token : null)
+      .catch(() => null);
+  }
+  return tokenPromise;
+}
+
+export async function authFetch(path: string, init: RequestInit = {}) {
+  const token = await getAdminToken();
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
 export function useAgentSocket() {
   const [runs, setRuns] = useState<Record<string, Run>>({});
   const [order, setOrder] = useState<string[]>([]);
@@ -175,16 +210,23 @@ export function useAgentSocket() {
     let closed = false;
     let retry: ReturnType<typeof setTimeout>;
 
-    const connect = () => {
+    const connect = async () => {
       if (closed) return;
-      const q = lastSeqRef.current ? `?since=${lastSeqRef.current}` : "";
-      const ws = new WebSocket(`${WS_BASE}/ws/agents${q}`);
+      const token = await getAdminToken();
+      if (closed) return;
+      const params = new URLSearchParams();
+      if (lastSeqRef.current) params.set("since", String(lastSeqRef.current));
+      if (token) params.set("token", token);
+      const qs = params.toString();
+      const ws = new WebSocket(`${WS_BASE}/ws/agents${qs ? `?${qs}` : ""}`);
       wsRef.current = ws;
 
       ws.onopen = () => setConnected(true);
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         setConnected(false);
-        if (!closed) retry = setTimeout(connect, 1500);
+        // 4401 = the token was rejected; get a fresh one before retrying.
+        if (e.code === 4401) tokenPromise = null;
+        if (!closed) retry = setTimeout(() => void connect(), 1500);
       };
       ws.onerror = () => ws.close();
       ws.onmessage = (e) => {
@@ -202,7 +244,7 @@ export function useAgentSocket() {
       };
     };
 
-    connect();
+    void connect();
     return () => {
       closed = true;
       clearTimeout(retry);
@@ -219,9 +261,8 @@ export function useAgentSocket() {
     }, []);
 
   const simulate = useCallback(async (body: Record<string, unknown>) => {
-    await fetch(`${API_BASE}/api/v1/admin/simulate`, {
+    await authFetch("/api/v1/admin/simulate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   }, []);

@@ -8,6 +8,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useAgents } from "../_lib/AgentSocketProvider";
 import { DETERMINISTIC, type DebateTurn, type Run } from "../_lib/types";
+import { SmsSimulator } from "./SmsSimulator";
 import "./admin.css";
 
 const NEEDS = ["medical_kits", "water_kits", "food_kits", "tents", "rescue_team"];
@@ -64,6 +65,8 @@ export default function AdminPage() {
           Scripted pipeline — real Groq agents drop in behind this same event stream.
         </p>
       </section>
+
+      <SmsSimulator />
 
       {orderedRuns.length === 0 && (
         <div className="empty">
