@@ -1,19 +1,39 @@
-import { ActivityEntry, HubRequest, LiveLocation, Plan } from "./types";
+import {
+  ActivityEntry,
+  CreateRequestBody,
+  HubRequest,
+  LiveLocation,
+  Organization,
+  Plan,
+} from "./types";
 
-// Backend IP — same one the Android app uses
+// Backend on the same machine as the web dashboard → localhost
 const API_URL = "http://localhost:8000";
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      ...init,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+    }
+    return (await res.json()) as T;
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error("Backend not responding (5s timeout)");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
   }
-  return (await res.json()) as T;
 }
 
 export function listRequests(params?: { status?: string; type?: string; source?: string }) {
@@ -23,6 +43,14 @@ export function listRequests(params?: { status?: string; type?: string; source?:
   if (params?.source) qs.set("source", params.source);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return http<{ count: number; requests: HubRequest[] }>(`/api/v1/requests${suffix}`);
+}
+
+// NEW: Donor Portal — register a resource or file a need
+export function createRequest(body: CreateRequestBody) {
+  return http<HubRequest>("/api/v1/requests", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function acceptRequest(id: string) {
@@ -47,7 +75,10 @@ export function listActivity(limit = 50) {
   return http<{ activity: ActivityEntry[] }>(`/api/v1/agent-activity?limit=${limit}`);
 }
 
-// NEW: live field-worker GPS positions
 export function listLocations() {
   return http<{ locations: LiveLocation[] }>("/api/v1/locations");
+}
+
+export function listOrganizations() {
+  return http<{ organizations: Organization[] }>("/api/v1/organizations");
 }

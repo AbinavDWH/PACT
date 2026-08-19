@@ -1,7 +1,7 @@
 package org.humanitarian.fieldapp.models
 
 data class OrgRequest(
-    val id: String,
+    val id: String,        // FIXED: was "valid:String"
     val type: String,
     val resource: String,
     val quantity: Int,

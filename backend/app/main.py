@@ -23,9 +23,6 @@ app.add_middleware(
 )
 
 
-# ═══════════════════════════════════════════════════════
-# EDIT 1: Added latitude / longitude to NeedRequest
-# ═══════════════════════════════════════════════════════
 class NeedRequest(BaseModel):
     organization_id: str
     location_code: str
@@ -87,9 +84,7 @@ LOCATION_NAME_MAP = {
     "D1": "District North", "D2": "District South",
 }
 
-# ═══════════════════════════════════════════════════════
-# EDIT 2: Chennai demo coordinates (lat, lng) per location code
-# ═══════════════════════════════════════════════════════
+# Chennai demo coordinates (lat, lng) per location code
 LOCATION_COORDS = {
     "RA": (13.0499, 80.2824),   # Marina area
     "RB": (13.0418, 80.2341),   # T. Nagar
@@ -104,6 +99,14 @@ RESOURCE_CODE_TO_NAME = {
     "B": "blankets", "H": "hygiene_kits", "D": "medical_teams", "U": "unknown",
 }
 RESOURCE_NAME_TO_CODE = {v: k for k, v in RESOURCE_CODE_TO_NAME.items()}
+
+# ═══════════════════════════════════════════════════════
+# EDIT A (Matching): human-readable labels for provider inventory
+# ═══════════════════════════════════════════════════════
+RESOURCE_CODE_LABELS = {
+    "F": "Food kits", "W": "Water kits", "M": "Medical kits", "T": "Tents",
+    "B": "Blankets", "H": "Hygiene kits", "D": "Medical teams", "U": "Unknown",
+}
 
 URGENCY_CODE_TO_NAME = {"L": "low", "M": "medium", "H": "high", "C": "critical"}
 URGENCY_NAME_TO_CODE = {v: k for k, v in URGENCY_CODE_TO_NAME.items()}
@@ -400,9 +403,6 @@ def finalize_request(rec: dict) -> dict:
     return rec
 
 
-# ═══════════════════════════════════════════════════════
-# EDIT 4: Added Chennai coordinates inside create_request_from_sms
-# ═══════════════════════════════════════════════════════
 def create_request_from_sms(decoded: dict):
     request_type = decoded.get("type")
     if request_type not in ("need", "resource", "status"):
@@ -458,14 +458,12 @@ def create_request_from_sms(decoded: dict):
     return rec
 
 
-# ═══════════════════════════════════════════════════════
-# EDIT 3: GPS — prefer real device coords, else Chennai fallback
-# ═══════════════════════════════════════════════════════
 def create_request_from_need(payload: NeedRequest):
     location_code, location_name = location_info(payload.location_code)
     resource_name = map_resource(payload.resource)
     urgency_name = map_urgency(payload.urgency)
 
+    # GPS: prefer real device coords, else Chennai fallback
     latitude = payload.latitude
     longitude = payload.longitude
     if latitude is None or longitude is None or (latitude == 0 and longitude == 0):
@@ -489,9 +487,6 @@ def create_request_from_need(payload: NeedRequest):
     return rec
 
 
-# ═══════════════════════════════════════════════════════
-# EDIT 5: seed_request now attaches Chennai coordinates
-# ═══════════════════════════════════════════════════════
 def seed_demo_data():
     if REQUESTS:
         return
@@ -638,8 +633,14 @@ async def run_need_pipeline(request_id: str):
 
     await asyncio.sleep(AGENT_DELAY_SECONDS)
     rec["status"] = "matched"
+    # ═══════════════════════════════════════════════════════
+    # EDIT B (Matching): persist matches so the web Matching
+    # page can show requirement -> provider results live
+    # ═══════════════════════════════════════════════════════
+    rec["matches"] = matches
+    rec["total_matched"] = sum(m["quantity"] for m in matches)
     add_activity("Resource Matching Agent",
-                 f"{request_id}: found {sum(m['quantity'] for m in matches)} {resource_name} across {len(matches)} organization(s)")
+                 f"{request_id}: found {rec['total_matched']} {resource_name} across {len(matches)} organization(s)")
 
     remaining = quantity
     allocations = []
@@ -809,7 +810,7 @@ async def create_request(body: HubRequestCreate):
         rec["plan_id"] = body.plan_id.strip().upper()
         rec["status_code"] = body.status_code
 
-    # Bonus: attach Chennai coordinates so web-form requests also appear on the map
+    # Attach Chennai coordinates so web-form requests also appear on the map
     loc = rec.get("location_code")
     if loc in LOCATION_COORDS:
         rec["latitude"], rec["longitude"] = LOCATION_COORDS[loc]
@@ -817,6 +818,26 @@ async def create_request(body: HubRequestCreate):
     key = (rec["organization_id"], rec["seq"])
     rec["status"] = "duplicate" if key in PROCESSED_SEQS else "pending"
     finalize_request(rec)
+
+    # ═══════════════════════════════════════════════════════
+    # DONOR RESOURCE AUTO-REGISTRATION
+    # Resource availability declarations (donations) do NOT need
+    # coordinator approval. Add them to the provider pool instantly
+    # so the Resource Matching Agent can find them immediately.
+    # ═══════════════════════════════════════════════════════
+    if request_type == "resource" and rec["status"] == "pending":
+        rec["status"] = "accepted"
+        rec["reviewed_at"] = now_iso()
+        org_id = rec["organization_id"]
+        org = ORGANIZATIONS.setdefault(
+            org_id, {"name": org_id, "resources": {}, "eta_hours": 4, "radius_km": 50}
+        )
+        org["resources"][resource_code] = org["resources"].get(resource_code, 0) + body.quantity
+        PROCESSED_SEQS.add(key)
+        add_activity(
+            "Resource Matching Agent",
+            f"{rec['id']}: registered {body.quantity} x {resource_name} from {org_id} (auto-accepted)",
+        )
 
     if AUTO_ACCEPT_WEB and rec["source"] == "web" and rec["status"] == "pending":
         rec, _, _ = await do_accept(rec)
@@ -852,6 +873,25 @@ def reject_request(request_id: str, body: RejectBody):
 def list_plans():
     items = sorted(PLANS.values(), key=lambda p: p.get("created_at", ""), reverse=True)
     return {"count": len(items), "plans": items}
+
+
+# ═══════════════════════════════════════════════════════
+# EDIT C (Matching): provider inventory for the Matching page
+# Returns shared org profiles only (privacy-safe: no donor /
+# staff / warehouse data exists in ORGANIZATIONS to begin with)
+# ═══════════════════════════════════════════════════════
+@app.get("/api/v1/organizations")
+def list_organizations():
+    return {"organizations": [
+        {
+            "organization_id": org_id,
+            "name": org.get("name", org_id),
+            "resources": org.get("resources", {}),
+            "eta_hours": org.get("eta_hours"),
+            "radius_km": org.get("radius_km"),
+        }
+        for org_id, org in ORGANIZATIONS.items()
+    ]}
 
 
 @app.get("/api/v1/agent-activity")
@@ -917,24 +957,34 @@ class LocationUpdate(BaseModel):
     longitude: float
 
 
+# ═══════════════════════════════════════════════════════
+# EDIT D (Location fix): ignore 0,0 (no GPS lock) and move
+# markers for ALL active requests of the org, any source
+# ═══════════════════════════════════════════════════════
 @app.post("/api/v1/location/update")
 def update_location(payload: LocationUpdate):
     """Android sends live GPS every 10 seconds"""
     org_id = payload.organization_id.strip().upper()
+    lat, lng = payload.latitude, payload.longitude
+
+    # Ignore 0,0 — means the phone has no GPS lock yet
+    if lat == 0.0 and lng == 0.0:
+        return {"status": "ignored", "reason": "zero coordinates (no GPS lock)"}
+
     LIVE_LOCATIONS[org_id] = {
         "organization_id": org_id,
-        "latitude": payload.latitude,
-        "longitude": payload.longitude,
+        "latitude": lat,
+        "longitude": lng,
         "updated_at": now_iso(),
     }
-    # Update this org's active requests so the web map marker MOVES live
+
+    # Update every active request of this org so the web map marker MOVES live
     updated = 0
     for rec in REQUESTS.values():
         if (rec.get("organization_id") == org_id
-                and rec.get("source") == "android"
-                and rec.get("status") in ("pending", "accepted", "processing", "matched")):
-            rec["latitude"] = payload.latitude
-            rec["longitude"] = payload.longitude
+                and rec.get("status") not in ("rejected", "duplicate", "completed")):
+            rec["latitude"] = lat
+            rec["longitude"] = lng
             updated += 1
     return {"status": "ok", "organization_id": org_id, "requests_updated": updated}
 

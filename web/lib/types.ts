@@ -12,6 +12,20 @@ export type RequestStatus =
 
 export type RequestSource = "web" | "sms" | "android";
 
+export interface OrgMatch {
+  organization_id: string;
+  quantity: number;
+  eta_hours: number;
+}
+
+export interface Organization {
+  organization_id: string;
+  name: string;
+  resources: Record<string, number>;
+  eta_hours: number;
+  radius_km: number;
+}
+
 export interface HubRequest {
   id: string;
   type: RequestType;
@@ -38,6 +52,9 @@ export interface HubRequest {
   latitude?: number | null;
   longitude?: number | null;
 
+  matches?: OrgMatch[] | null;
+  total_matched?: number | null;
+
   sms_canonical?: string | null;
   checksum?: string | null;
   payload?: Record<string, unknown>;
@@ -46,7 +63,21 @@ export interface HubRequest {
   reject_reason?: string | null;
 }
 
-// NEW: live field-worker GPS from Android app
+// NEW: body for POST /api/v1/requests (Donor Portal)
+export interface CreateRequestBody {
+  type: RequestType;
+  organization_id: string;
+  seq?: string | null;
+  location?: string | null;
+  resource?: string | null;
+  quantity?: number | null;
+  urgency?: string | null;
+  availability_status?: string | null;
+  plan_id?: string | null;
+  status_code?: number | null;
+  source?: string;
+}
+
 export interface LiveLocation {
   organization_id: string;
   latitude: number;
@@ -88,4 +119,15 @@ export const STATUS_CODE_NAMES: Record<number, string> = {
   3: "delivered",
   4: "blocked",
   5: "cancelled",
+};
+
+export const RESOURCE_CODE_LABELS: Record<string, string> = {
+  F: "Food kits",
+  W: "Water kits",
+  M: "Medical kits",
+  T: "Tents",
+  B: "Blankets",
+  H: "Hygiene kits",
+  D: "Medical teams",
+  U: "Unknown",
 };
