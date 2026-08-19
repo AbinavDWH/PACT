@@ -29,6 +29,51 @@ function gpsLabel(r: HubRequest): string {
   return "—";
 }
 
+// NEW: allocation result — shows success (plan + coverage) or failure (no suppliers)
+function allocationCell(r: HubRequest) {
+  if (r.type !== "need") return <span className="text-xs text-[#a1866f]">—</span>;
+
+  const matched = r.total_matched ?? 0;
+  const required = r.quantity ?? 0;
+
+  if (r.status === "allocated" || r.status === "completed") {
+    if (matched <= 0) {
+      return (
+        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
+          NO SUPPLIERS
+        </span>
+      );
+    }
+    const pct = required > 0 ? Math.round((matched / required) * 100) : 0;
+    const full = matched >= required;
+    return (
+      <div className="text-xs">
+        <span className={`rounded-full px-2 py-0.5 font-bold ${full ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
+          {full ? "ALLOCATED" : "PARTIAL"}
+        </span>
+        <div className="mt-1 font-mono text-[11px] text-[#4a3a28]">
+          {r.plan_id ?? "PLAN"} · {matched}/{required} ({pct}%)
+        </div>
+      </div>
+    );
+  }
+
+  if (r.status === "matched") {
+    return (
+      <div className="text-xs">
+        <span className="rounded-full bg-blue-100 px-2 py-0.5 font-bold text-blue-700">MATCHED</span>
+        <div className="mt-1 font-mono text-[11px] text-[#4a3a28]">{matched}/{required} found</div>
+      </div>
+    );
+  }
+
+  if (r.status === "accepted" || r.status === "processing") {
+    return <span className="text-xs text-[#a1866f]">agents working…</span>;
+  }
+
+  return <span className="text-xs text-[#a1866f]">—</span>;
+}
+
 export default function RequestTable({ requests, busyId, onAccept, onReject }: Props) {
   return (
     <div className="overflow-x-auto rounded-xl border border-[#FFE5BF] bg-white">
@@ -45,13 +90,14 @@ export default function RequestTable({ requests, busyId, onAccept, onReject }: P
             <th className="px-4 py-3">Priority</th>
             <th className="px-4 py-3">Source</th>
             <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Allocation</th>
             <th className="px-4 py-3">Action</th>
           </tr>
         </thead>
         <tbody>
           {requests.length === 0 && (
             <tr>
-              <td colSpan={11} className="px-4 py-10 text-center text-[#a1866f]">
+              <td colSpan={12} className="px-4 py-10 text-center text-[#a1866f]">
                 No requests in this view.
               </td>
             </tr>
@@ -82,6 +128,7 @@ export default function RequestTable({ requests, busyId, onAccept, onReject }: P
               <td className="px-4 py-3"><UrgencyBadge request={r} /></td>
               <td className="px-4 py-3"><SourceBadge source={r.source} /></td>
               <td className="px-4 py-3"><StatusBadge status={r.status} reason={r.reject_reason} /></td>
+              <td className="px-4 py-3">{allocationCell(r)}</td>
               <td className="px-4 py-3">
                 {r.status === "pending" ? (
                   <div className="flex gap-2">

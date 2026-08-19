@@ -172,7 +172,12 @@ export default function MatchingPage() {
                         </div>
                       </div>
                     )}
-
+                    {(need as any).ai_match_reasoning && (
+                      <div className="mt-3 rounded-lg border border-[#FFE5BF] bg-[#FFFAF3] px-3 py-2 text-xs text-[#4a3a28]">
+                        <span className="font-bold text-[#F62440]">AI Matching: </span>
+                        {(need as any).ai_match_reasoning}
+                      </div>
+                    )}
                     {isMatched && matches.length === 0 && (
                       <div className="mt-4 rounded-lg border border-dashed border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
                         No providers found with this resource — needs replanning or new providers.

@@ -2,69 +2,60 @@ package org.humanitarian.fieldapp.sms
 
 import android.content.Context
 import org.humanitarian.fieldapp.models.FieldReport
+import java.util.Locale
 
 object SmsEncoder {
 
-    private const val PREFS_NAME = "pact_sms"
+    private const val PREFS_NAME = "pact_sms_seq"
+    private const val KEY_SEQ = "next_sequence"
 
-    fun nextSequence(
-        context: Context,
-        organizationId: String
-    ): String {
-        val safeOrganizationId = organizationId
-            .trim()
-            .uppercase()
-            .ifBlank { "UNKNOWN" }
-
-        val prefs = context.getSharedPreferences(
-            PREFS_NAME,
-            Context.MODE_PRIVATE
-        )
-
-        val key = "sms_seq_$safeOrganizationId"
-        val current = prefs.getInt(key, 1)
-
-        val formatted = current.toString().padStart(3, '0')
-
-        val next = if (current >= 999) {
-            1
-        } else {
-            current + 1
-        }
-
-        prefs.edit()
-            .putInt(key, next)
-            .apply()
-
-        return formatted
+    /** Persistent sequence number (001, 002, ...) — sms.md section 25 */
+    fun nextSequence(context: Context, organizationId: String): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val seq = prefs.getInt(KEY_SEQ, 1)
+        prefs.edit().putInt(KEY_SEQ, seq + 1).apply()
+        return String.format(Locale.US, "%03d", seq)
     }
 
-    fun encodeNeed(
-        report: FieldReport,
-        seq: String
-    ): String {
-        val organization = report.organizationId
-            .trim()
-            .uppercase()
-            .replace("|", "")
-            .ifBlank { "NGO01" }
-
-        val location = locationCode(report.locationCode)
-        val resource = resourceCode(report.resourceCode)
-        val urgency = urgencyCode(report.urgencyCode)
+    /**
+     * Canonical need SMS — sms.md section 11:
+     * N|SEQ|ORG|LOC|RESOURCE|QTY|URGENCY|CRC
+     *
+     * LOC = real GPS coordinates ("lat,lng", 4 decimals) when the device
+     * has a GPS lock — otherwise falls back to the location code.
+     */
+    fun encodeNeed(report: FieldReport, seq: String): String {
+        val loc = if (hasRealGps(report)) {
+            // sms.md section 10: decimal coordinates, max 4 places, lat first
+            String.format(Locale.US, "%.4f,%.4f", report.latitude!!, report.longitude!!)
+        } else {
+            report.locationCode
+        }
 
         val body = listOf(
             "N",
             seq,
-            organization,
-            location,
-            resource,
+            report.organizationId,
+            loc,
+            report.resourceCode,
             report.quantity.toString(),
-            urgency
+            report.urgencyCode
         ).joinToString("|")
 
-        val checksum = xorChecksum(body)
+        return "$body|${xorChecksum(body)}"
+    }
 
-        return "$body|$checksum"
+    /** True only when the device has a real GPS lock (not 0,0) */
+    private fun hasRealGps(report: FieldReport): Boolean {
+        val lat = report.latitude
+        val lng = report.longitude
+        return lat != null && lng != null && (lat != 0.0 || lng != 0.0)
+    }
+
+    /** XOR checksum — sms.md section 24 */
+    private fun xorChecksum(text: String): String {
+        var value = 0
+        for (c in text) value = value xor c.code
+        return String.format(Locale.US, "%02X", value)
     }
 }

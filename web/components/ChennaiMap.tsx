@@ -4,13 +4,11 @@ import { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { listLocations } from "../lib/api";
-import { HubRequest, LiveLocation } from "../lib/types";
+import { listLocations, listOrganizations } from "../lib/api";
+import { HubRequest, LiveLocation, Organization } from "../lib/types";
 
-// Chennai center
 const CHENNAI_CENTER: [number, number] = [13.0827, 80.2707];
 
-// Lock the map to Chennai only
 const CHENNAI_BOUNDS: [[number, number], [number, number]] = [
   [12.75, 79.90],
   [13.45, 80.55],
@@ -23,16 +21,9 @@ const URGENCY_COLORS: Record<string, string> = {
   low: "#4CAF50",
 };
 
-// Blue = live field worker (person)
-const PERSON_COLOR = "#2196F3";
+// FIX: distinct color per organization (sender)
+const ORG_COLORS = ["#2196F3", "#9C27B0", "#00897B", "#EF6C00", "#C2185B", "#5D4037"];
 
-const TYPE_LABELS: Record<string, string> = {
-  need: "Need",
-  resource: "Resource",
-  status: "Status",
-};
-
-// Request marker: colored dot by urgency
 function dotIcon(urgency?: string) {
   const color = URGENCY_COLORS[(urgency ?? "").toLowerCase()] ?? "#7c6a58";
   return L.divIcon({
@@ -44,13 +35,12 @@ function dotIcon(urgency?: string) {
   });
 }
 
-// Person marker: blue pulsing dot
-function personIcon() {
+function personIcon(color: string) {
   return L.divIcon({
     html: `
       <div style="position:relative;width:24px;height:24px;">
-        <div style="position:absolute;inset:0;border-radius:50%;background:${PERSON_COLOR};opacity:.4;"></div>
-        <div style="position:absolute;inset:6px;border-radius:50%;background:${PERSON_COLOR};border:2px solid #fff;box-shadow:0 0 8px rgba(33,150,243,.9);"></div>
+        <div style="position:absolute;inset:0;border-radius:50%;background:${color};opacity:.4;"></div>
+        <div style="position:absolute;inset:6px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 8px ${color};"></div>
       </div>`,
     className: "",
     iconSize: [24, 24],
@@ -65,16 +55,18 @@ interface Props {
 
 export default function ChennaiMap({ requests = [] }: Props) {
   const [locations, setLocations] = useState<LiveLocation[]>([]);
+  const [orgs, setOrgs] = useState<Organization[]>([]);
 
-  // Poll live worker GPS every 3 seconds
   useEffect(() => {
     let mounted = true;
     const load = async () => {
       try {
-        const res = await listLocations();
-        if (mounted) setLocations(res.locations);
+        const [locRes, orgRes] = await Promise.all([listLocations(), listOrganizations()]);
+        if (!mounted) return;
+        setLocations(locRes.locations);
+        setOrgs(orgRes.organizations);
       } catch {
-        // backend unreachable — ignore silently
+        // backend unreachable — ignore
       }
     };
     load();
@@ -84,6 +76,15 @@ export default function ChennaiMap({ requests = [] }: Props) {
       clearInterval(timer);
     };
   }, []);
+
+  // FIX: org id → real name (NGO01 → "NGO Alpha"), fallback to id
+  const orgName = (id: string) => orgs.find((o) => o.organization_id === id)?.name ?? id;
+
+  // FIX: org id → distinct color
+  const orgColor = (id: string) => {
+    const idx = orgs.findIndex((o) => o.organization_id === id);
+    return ORG_COLORS[(idx >= 0 ? idx : 0) % ORG_COLORS.length];
+  };
 
   const requestMarkers = requests.filter(
     (r) =>
@@ -107,10 +108,9 @@ export default function ChennaiMap({ requests = [] }: Props) {
         </span>
       </div>
 
-      {/* Legend */}
       <div className="flex flex-wrap items-center gap-4 border-b border-[#FFE5BF] bg-white px-4 py-2 text-[11px]">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-full" style={{ background: PERSON_COLOR }} />
+          <span className="inline-block h-3 w-3 rounded-full" style={{ background: "#2196F3" }} />
           <span className="font-semibold text-[#4a3a28]">Field worker (live GPS)</span>
         </span>
         {Object.entries(URGENCY_COLORS).map(([label, color]) => (
@@ -136,19 +136,22 @@ export default function ChennaiMap({ requests = [] }: Props) {
             url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          {/* LAYER 1: Live field-worker GPS (blue person markers with org label) */}
+          {/* LAYER 1: Live field-worker GPS — colored per org, real name label */}
           {personMarkers.map((l) => (
             <Marker
               key={`person-${l.organization_id}-${l.latitude}-${l.longitude}`}
               position={[l.latitude, l.longitude]}
-              icon={personIcon()}
+              icon={personIcon(orgColor(l.organization_id))}
             >
               <Tooltip permanent direction="top" offset={[0, -10]}>
-                {l.organization_id}
+                {orgName(l.organization_id)}
               </Tooltip>
               <Popup>
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                  <strong>{l.organization_id}</strong> — live field worker
+                  <strong>{orgName(l.organization_id)}</strong>{" "}
+                  <span style={{ color: "#a1866f" }}>({l.organization_id})</span>
+                  <br />
+                  Live field worker
                   <br />
                   GPS: {l.latitude.toFixed(4)}, {l.longitude.toFixed(4)}
                   <br />
@@ -158,7 +161,7 @@ export default function ChennaiMap({ requests = [] }: Props) {
             </Marker>
           ))}
 
-          {/* LAYER 2: Request markers (colored by urgency) */}
+          {/* LAYER 2: Request markers — popup shows each request's own sender */}
           {requestMarkers.map((r) => (
             <Marker
               key={`req-${r.id}-${r.latitude}-${r.longitude}`}
@@ -170,7 +173,10 @@ export default function ChennaiMap({ requests = [] }: Props) {
                   <strong>{r.id}</strong>{" "}
                   <span style={{ color: "#a1866f" }}>({r.source})</span>
                   <br />
-                  Org: {r.organization_id}
+                  Sender:{" "}
+                  <span style={{ color: orgColor(r.organization_id), fontWeight: 700 }}>
+                    {orgName(r.organization_id)} ({r.organization_id})
+                  </span>
                   <br />
                   Loc: {r.location_name ?? r.location_code}
                   <br />
@@ -183,9 +189,10 @@ export default function ChennaiMap({ requests = [] }: Props) {
                     }}
                   >
                     {r.urgency} urgency
-                  </span>
+                  </span>{" "}
+                  · Status: {r.status}
                   <br />
-                  Status: {r.status}
+                  {r.plan_id && <span>Plan: {r.plan_id}</span>}
                 </div>
               </Popup>
             </Marker>

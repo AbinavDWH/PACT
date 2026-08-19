@@ -3,6 +3,7 @@ package org.humanitarian.fieldapp.network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.humanitarian.fieldapp.models.FieldReport
+import org.humanitarian.fieldapp.models.OrgMatch
 import org.humanitarian.fieldapp.models.OrgRequest
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -202,6 +203,7 @@ object ApiClient {
     }
 
     // Poll approval status of this org's requests
+        // Poll approval + allocation status of this org's requests
     suspend fun getRequestsByOrg(organizationId: String): ApiResult<List<OrgRequest>> {
         return withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
@@ -219,6 +221,23 @@ object ApiClient {
                     val list = mutableListOf<OrgRequest>()
                     for (i in 0 until arr.length()) {
                         val o = arr.getJSONObject(i)
+
+                        // NEW: parse matched providers (present after "matched" status)
+                        val matches = mutableListOf<OrgMatch>()
+                        val matchesArr = o.optJSONArray("matches")
+                        if (matchesArr != null) {
+                            for (j in 0 until matchesArr.length()) {
+                                val m = matchesArr.getJSONObject(j)
+                                matches.add(
+                                    OrgMatch(
+                                        organizationId = m.optString("organization_id", ""),
+                                        quantity = m.optInt("quantity", 0),
+                                        etaHours = m.optInt("eta_hours", 0)
+                                    )
+                                )
+                            }
+                        }
+
                         list.add(
                             OrgRequest(
                                 id = o.optString("id", ""),
@@ -228,7 +247,10 @@ object ApiClient {
                                 status = o.optString("status", "pending"),
                                 latitude = if (o.isNull("latitude")) null else o.optDouble("latitude"),
                                 longitude = if (o.isNull("longitude")) null else o.optDouble("longitude"),
-                                createdAt = o.optString("created_at", "")
+                                createdAt = o.optString("created_at", ""),
+                                planId = if (o.isNull("plan_id")) null else o.optString("plan_id"),
+                                totalMatched = if (o.isNull("total_matched")) null else o.optInt("total_matched"),
+                                matches = matches
                             )
                         )
                     }

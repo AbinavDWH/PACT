@@ -106,6 +106,15 @@ export default function PlansPage() {
                       </span>
                     </div>
 
+                    {(plan as any).ai_summary && (
+                      <div className="mt-3 rounded-lg border border-[#FFE5BF] bg-[#FFFAF3] px-3 py-2 text-xs text-[#4a3a28]">
+                        <div><span className="font-bold text-[#F62440]">AI Dispatch Briefing: </span>{(plan as any).ai_summary}</div>
+                        {(plan as any).ai_risks && (
+                          <div className="mt-1"><span className="font-bold text-[#FF9800]">Risks: </span>{(plan as any).ai_risks}</div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="mt-4 grid gap-4 md:grid-cols-3">
                       <div>
                         <div className="text-xs text-[#a1866f]">Required</div>

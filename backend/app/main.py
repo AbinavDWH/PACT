@@ -1,6 +1,8 @@
 import asyncio
 import itertools
 import json
+import os
+import urllib.request
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -100,9 +102,7 @@ RESOURCE_CODE_TO_NAME = {
 }
 RESOURCE_NAME_TO_CODE = {v: k for k, v in RESOURCE_CODE_TO_NAME.items()}
 
-# ═══════════════════════════════════════════════════════
-# EDIT A (Matching): human-readable labels for provider inventory
-# ═══════════════════════════════════════════════════════
+# Human-readable labels for provider inventory
 RESOURCE_CODE_LABELS = {
     "F": "Food kits", "W": "Water kits", "M": "Medical kits", "T": "Tents",
     "B": "Blankets", "H": "Hygiene kits", "D": "Medical teams", "U": "Unknown",
@@ -168,6 +168,17 @@ def location_info(location: str):
         code = location
     name = LOCATION_NAME_MAP.get(code, location)
     return code, name
+
+
+def parse_sms_location(loc):
+    """Detect 'lat,lng' in an SMS location field (sms.md section 10)."""
+    if not loc or "," not in str(loc):
+        return None
+    try:
+        lat_s, lng_s = str(loc).split(",")[:2]
+        return float(lat_s.strip()), float(lng_s.strip())
+    except (ValueError, TypeError):
+        return None
 
 
 def resource_code_for(value: str):
@@ -351,6 +362,15 @@ _PLAN_COUNTER = itertools.count(101)
 AGENT_DELAY_SECONDS = 1.2
 AUTO_ACCEPT_WEB = False
 
+# ═══════════════════════════════════════════════════════
+# GROQ AI CONFIG — agents powered by Llama 3.3 70B
+# If GROQ_API_KEY is missing, pipeline falls back to
+# deterministic logic so the demo never breaks.
+# ═══════════════════════════════════════════════════════
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
 BANNED_KEYWORDS = (
     "donor", "funding", "staff", "volunteer", "beneficiary",
     "warehouse", "salary", "bank_account", "password", "personal_id",
@@ -446,10 +466,16 @@ def create_request_from_sms(decoded: dict):
             status_code=decoded.get("status_code", STATUS_NAME_TO_CODE.get(decoded.get("status"), 0)),
         )
 
-    # Attach Chennai coordinates for map display
-    loc = rec.get("location_code")
-    if loc in LOCATION_COORDS:
-        rec["latitude"], rec["longitude"] = LOCATION_COORDS[loc]
+    # NEW: SMS loc field may carry real GPS ("lat,lng") — sms.md section 10
+    gps = parse_sms_location(rec.get("location_code"))
+    if gps:
+        rec["latitude"], rec["longitude"] = gps
+        rec["location_name"] = rec.get("location_name") or f"GPS {rec['location_code']}"
+    else:
+        # Chennai fallback per location code
+        loc = rec.get("location_code")
+        if loc in LOCATION_COORDS:
+            rec["latitude"], rec["longitude"] = LOCATION_COORDS[loc]
 
     key = (rec["organization_id"], rec["seq"])
     rec["status"] = "duplicate" if key in PROCESSED_SEQS else "pending"
@@ -575,6 +601,175 @@ def validate_for_accept(rec: dict):
     return True, None
 
 
+# ═══════════════════════════════════════════════════════
+# GROQ HELPERS
+# ═══════════════════════════════════════════════════════
+
+def groq_chat_sync(system_prompt: str, user_prompt: str, temperature: float = 0.2, max_tokens: int = 600):
+    """Synchronous Groq call. Returns response text or None on any failure."""
+    if not GROQ_API_KEY:
+        return None
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    req = urllib.request.Request(
+        GROQ_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return data["choices"][0]["message"]["content"]
+    except Exception:
+        return None
+
+
+def extract_json(text):
+    """Parse JSON from an LLM response, tolerating markdown fences."""
+    if not text:
+        return None
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`").strip()
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        start, end = text.find("{"), text.rfind("}")
+        if start != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except Exception:
+                return None
+    return None
+
+
+async def groq_json_async(system_prompt: str, user_prompt: str, temperature: float = 0.2):
+    """Async Groq call returning parsed JSON dict or None."""
+    text = await asyncio.to_thread(groq_chat_sync, system_prompt, user_prompt, temperature)
+    return extract_json(text)
+
+
+# ───────────── AI PRIVACY FLAG (on Accept) ─────────────
+
+async def ai_flag_request(rec: dict):
+    """Privacy Filter Agent (AI): scan request for sensitive data."""
+    if not GROQ_API_KEY:
+        return None
+    payload = rec.get("payload") or {}
+    notes = str(payload.get("notes", "")) if isinstance(payload, dict) else ""
+    summary = {
+        "type": rec.get("type"),
+        "organization_id": rec.get("organization_id"),
+        "location": rec.get("location_name") or rec.get("location_code"),
+        "resource": rec.get("resource"),
+        "quantity": rec.get("quantity"),
+        "urgency": rec.get("urgency"),
+        "notes": notes,
+        "source": rec.get("source"),
+    }
+    system = (
+        "You are the Privacy Filter Agent of a humanitarian coordination platform. "
+        "Detect sensitive data that must never be shared: donor names, funding details, "
+        "staff or volunteer names, exact warehouse addresses, beneficiary personal data, "
+        "bank details, security or operational secrets. "
+        "Respond ONLY with JSON: "
+        '{"flagged": true|false, "risk_level": "none|low|high", "reasons": ["..."], "summary": "one short sentence"}'
+    )
+    user = f"Request to validate:\n{json.dumps(summary)}"
+    result = await groq_json_async(system, user, temperature=0.0)
+    if result and isinstance(result.get("flagged"), bool):
+        return result
+    return None
+
+
+# ───────────── AI MATCHING (Resource Matching Agent) ─────────────
+
+async def ai_enhance_matching(rec: dict, deterministic_matches: list):
+    """Ask Groq to decide provider quantities. Falls back to deterministic matches."""
+    if not GROQ_API_KEY or not deterministic_matches:
+        return deterministic_matches, None
+    inventory = json.dumps([
+        {"organization_id": m["organization_id"], "available": m["quantity"], "eta_hours": m["eta_hours"]}
+        for m in deterministic_matches
+    ])
+    system = (
+        "You are the Resource Matching Agent of a humanitarian coordination platform. "
+        "Decide how much each provider should contribute to satisfy the need. "
+        "Rules: never exceed a provider's available quantity; prefer faster providers (lower eta_hours) "
+        "for critical/high urgency; split across providers when sensible. "
+        "Respond ONLY with JSON: "
+        '{"matches": [{"organization_id": "...", "quantity": N}], "reasoning": "one short sentence"}'
+    )
+    user = (
+        f"Need: {rec.get('quantity')} x {rec.get('resource')} at {rec.get('location_name')}, "
+        f"urgency: {rec.get('urgency')}.\nAvailable providers: {inventory}"
+    )
+    result = await groq_json_async(system, user)
+    if not result or not isinstance(result.get("matches"), list):
+        return deterministic_matches, None
+
+    avail = {m["organization_id"]: m["quantity"] for m in deterministic_matches}
+    etas = {m["organization_id"]: m["eta_hours"] for m in deterministic_matches}
+    validated = []
+    for m in result["matches"]:
+        oid = str(m.get("organization_id", "")).strip().upper()
+        try:
+            qty = int(m.get("quantity", 0))
+        except (TypeError, ValueError):
+            continue
+        if oid in avail and 0 < qty <= avail[oid]:
+            validated.append({"organization_id": oid, "quantity": qty, "eta_hours": etas[oid]})
+    if not validated:
+        return deterministic_matches, None
+    return validated, (result.get("reasoning") if isinstance(result.get("reasoning"), str) else None)
+
+
+# ───────────── AI PLANNING (Coordination Agent) ─────────────
+
+async def ai_plan_summary(rec: dict, plan: dict):
+    """Coordination Agent (AI): write dispatch summary + risk notes for the plan."""
+    if not GROQ_API_KEY:
+        return None
+    system = (
+        "You are the Coordination Agent of a humanitarian coordination platform. "
+        "Write a concise dispatch briefing for the allocation plan. "
+        "Respond ONLY with JSON: "
+        '{"summary": "two short sentences", "risks": "one short sentence"}'
+    )
+    user = json.dumps({
+        "need": {
+            "resource": rec.get("resource"), "quantity": rec.get("quantity"),
+            "location": rec.get("location_name"), "urgency": rec.get("urgency"),
+        },
+        "plan": {
+            "plan_id": plan["plan_id"], "allocated": plan["allocated_quantity"],
+            "required": plan["required_quantity"], "status": plan["status"],
+            "allocations": plan["allocations"],
+        },
+    })
+    result = await groq_json_async(system, user)
+    if result and isinstance(result.get("summary"), str):
+        return result
+    return None
+
+
+# ═══════════════════════════════════════════════════════
+# ACCEPT FLOW with AI PRIVACY FLAG
+# ═══════════════════════════════════════════════════════
+
 async def do_accept(rec: dict):
     ok, reason = validate_for_accept(rec)
     rec["reviewed_at"] = now_iso()
@@ -584,6 +779,19 @@ async def do_accept(rec: dict):
         agent = "Privacy Filter Agent" if reason == "PRIVACY" else "Validator"
         add_activity(agent, f"{rec['id']}: auto-rejected ({reason})")
         return rec, False, reason
+
+    # ═══════ AI PRIVACY FLAG (Groq) ═══════
+    ai_flag = await ai_flag_request(rec)
+    if ai_flag:
+        rec["ai_flag"] = ai_flag
+        if ai_flag.get("flagged") and ai_flag.get("risk_level") == "high":
+            rec["status"] = "rejected"
+            rec["reject_reason"] = "PRIVACY (AI-flagged)"
+            add_activity("Privacy Filter Agent (AI)",
+                         f"{rec['id']}: auto-rejected — {ai_flag.get('summary', 'sensitive data detected')}")
+            return rec, False, "PRIVACY_AI"
+        add_activity("Privacy Filter Agent (AI)",
+                     f"{rec['id']}: cleared — {ai_flag.get('summary', 'no sensitive data')}")
 
     rec["status"] = "accepted"
     PROCESSED_SEQS.add((rec.get("organization_id"), rec.get("seq")))
@@ -623,24 +831,28 @@ async def run_need_pipeline(request_id: str):
     add_activity("Need Assessment Agent",
                  f"{request_id}: need at {location_label} - {quantity} x {resource_name}, urgency {rec.get('urgency')}")
 
-    matches = []
+    deterministic_matches = []
     for org_id, org in ORGANIZATIONS.items():
         if org_id == rec.get("organization_id"):
             continue
         available = org["resources"].get(resource_code, 0)
         if available > 0:
-            matches.append({"organization_id": org_id, "quantity": available, "eta_hours": org["eta_hours"]})
+            deterministic_matches.append({"organization_id": org_id, "quantity": available, "eta_hours": org["eta_hours"]})
+
+    # ═══════ AI MATCHING (Groq) with fallback ═══════
+    matches, ai_reasoning = await ai_enhance_matching(rec, deterministic_matches)
 
     await asyncio.sleep(AGENT_DELAY_SECONDS)
     rec["status"] = "matched"
-    # ═══════════════════════════════════════════════════════
-    # EDIT B (Matching): persist matches so the web Matching
-    # page can show requirement -> provider results live
-    # ═══════════════════════════════════════════════════════
     rec["matches"] = matches
     rec["total_matched"] = sum(m["quantity"] for m in matches)
+
+    if ai_reasoning:
+        rec["ai_match_reasoning"] = ai_reasoning
+        add_activity("Resource Matching Agent (AI)",
+                     f"{request_id}: {ai_reasoning}")
     add_activity("Resource Matching Agent",
-                 f"{request_id}: found {rec['total_matched']} {resource_name} across {len(matches)} organization(s)")
+                 f"{request_id}: matched {rec['total_matched']} {resource_name} across {len(matches)} organization(s)")
 
     remaining = quantity
     allocations = []
@@ -668,6 +880,14 @@ async def run_need_pipeline(request_id: str):
         "allocations": allocations, "priority": rec.get("urgency"),
         "status": plan_status, "created_at": now_iso(),
     }
+
+    # ═══════ AI PLANNING (Groq) — dispatch briefing ═══════
+    ai_briefing = await ai_plan_summary(rec, plan)
+    if ai_briefing:
+        plan["ai_summary"] = ai_briefing.get("summary")
+        plan["ai_risks"] = ai_briefing.get("risks")
+        add_activity("Coordination Agent (AI)", f"{plan['plan_id']}: {ai_briefing.get('summary')}")
+
     PLANS[plan["plan_id"]] = plan
 
     await asyncio.sleep(AGENT_DELAY_SECONDS)
@@ -875,11 +1095,7 @@ def list_plans():
     return {"count": len(items), "plans": items}
 
 
-# ═══════════════════════════════════════════════════════
-# EDIT C (Matching): provider inventory for the Matching page
-# Returns shared org profiles only (privacy-safe: no donor /
-# staff / warehouse data exists in ORGANIZATIONS to begin with)
-# ═══════════════════════════════════════════════════════
+# Provider inventory for the Matching page (privacy-safe shared profiles)
 @app.get("/api/v1/organizations")
 def list_organizations():
     return {"organizations": [
@@ -909,6 +1125,17 @@ def set_auto_accept(enabled: bool = True):
     global AUTO_ACCEPT_WEB
     AUTO_ACCEPT_WEB = enabled
     return {"enabled": AUTO_ACCEPT_WEB}
+
+
+# ═══════════════════════════════════════════════════════
+# AI STATUS ENDPOINT — web can show "AI: ON (llama-3.3-70b)"
+# ═══════════════════════════════════════════════════════
+@app.get("/api/v1/config/ai")
+def get_ai_config():
+    return {
+        "groq_enabled": bool(GROQ_API_KEY),
+        "model": GROQ_MODEL if GROQ_API_KEY else None,
+    }
 
 
 @app.on_event("startup")
@@ -957,10 +1184,6 @@ class LocationUpdate(BaseModel):
     longitude: float
 
 
-# ═══════════════════════════════════════════════════════
-# EDIT D (Location fix): ignore 0,0 (no GPS lock) and move
-# markers for ALL active requests of the org, any source
-# ═══════════════════════════════════════════════════════
 @app.post("/api/v1/location/update")
 def update_location(payload: LocationUpdate):
     """Android sends live GPS every 10 seconds"""
