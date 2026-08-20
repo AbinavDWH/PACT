@@ -7,12 +7,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import org.pact.app.BuildConfig
 import org.pact.app.MainActivity
@@ -29,6 +32,10 @@ import java.util.Locale
  * arrives at the backend. Previously the seeker phone sent a real message and
  * nothing received it; the only route into the backend was a human pasting the
  * string into the simulator.
+ *
+ * This is the most console-like screen in the app, and it is styled like one:
+ * a live indicator in the top bar, a log of received frames, and every wire
+ * string in Fira Code.
  */
 @Composable
 fun GatewayScreen(activity: MainActivity, onBack: () -> Unit) {
@@ -52,50 +59,52 @@ fun GatewayScreen(activity: MainActivity, onBack: () -> Unit) {
         }
     }
 
-    Scaffold(
+    PactScaffold(
+        sub = "Gateway",
+        actions = { StatusDot(on = enabled) },
         bottomBar = {
-            Surface(tonalElevation = 3.dp) {
-                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
-                        Text("Back")
-                    }
-                    Button(
+            PactBottomBar {
+                Row(horizontalArrangement = Arrangement.spacedBy(Pact.Space3)) {
+                    GhostButton("Back", onBack, modifier = Modifier.weight(1f))
+                    PrimaryButton(
+                        "Refresh",
                         onClick = { entries = SmsGateway.entries(context) },
                         modifier = Modifier.weight(1f),
-                    ) { Text("Refresh") }
+                    )
                 }
             }
-        }
+        },
     ) { pad ->
         Column(
-            Modifier.padding(pad).padding(horizontal = 20.dp)
+            Modifier.padding(pad).padding(horizontal = Pact.Gutter)
                 .verticalScroll(rememberScrollState())
         ) {
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Pact.Space5))
             Text("SMS gateway", style = MaterialTheme.typography.headlineMedium,
-                 fontWeight = FontWeight.Black)
+                 color = Pact.Ink)
             Text(
                 "This phone receives the real SMS and forwards it to the server. "
                     + "Leave it plugged in and on this screen.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                color = Pact.Dim,
+                modifier = Modifier.padding(top = Pact.Space1),
             )
 
-            Spacer(Modifier.height(16.dp))
-            Card {
+            Spacer(Modifier.height(Pact.Space4))
+            Panel(tone = if (enabled) Tone.Good else null) {
                 Row(
-                    Modifier.padding(16.dp).fillMaxWidth(),
+                    Modifier.padding(Pact.Space4).fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("Gateway mode", style = MaterialTheme.typography.titleMedium,
-                             fontWeight = FontWeight.Bold)
+                        Text("Gateway mode", style = MaterialTheme.typography.titleSmall,
+                             color = Pact.Ink)
                         Text(
                             if (enabled) "Listening for PACT messages"
                             else "Off — inbound messages are ignored",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (enabled) MaterialTheme.colorScheme.secondary
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            color = if (enabled) Pact.Good else Pact.Faint,
                         )
                     }
                     Switch(
@@ -108,62 +117,69 @@ fun GatewayScreen(activity: MainActivity, onBack: () -> Unit) {
                                 enabled = want
                             }
                         },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Pact.OnAccent,
+                            checkedTrackColor = Pact.Det,
+                            checkedBorderColor = Pact.Det,
+                            uncheckedThumbColor = Pact.Dim,
+                            uncheckedTrackColor = Pact.Panel3,
+                            uncheckedBorderColor = Pact.Line,
+                        ),
                     )
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
-            Card(colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f))) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("Forwarding to", style = MaterialTheme.typography.labelLarge,
-                         fontWeight = FontWeight.Bold)
-                    Text(BuildConfig.API_BASE, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(6.dp))
-                    // Saying this out loud matters: a gateway handset still
-                    // receives OTPs and private messages, and forwarding those
-                    // would be a worse privacy failure than anything this
-                    // project defends against.
-                    Text(
-                        "Only messages that look like PACT frames are forwarded. "
-                            + "Anything else — OTPs, personal messages — is ignored and "
-                            + "never leaves this phone.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+            Spacer(Modifier.height(Pact.Space3))
+            NotePanel(Tone.Llm) {
+                Badge("Forwarding to", Tone.Llm)
+                Spacer(Modifier.height(Pact.Space2))
+                Mono(BuildConfig.API_BASE, color = Pact.Ink)
+                Spacer(Modifier.height(Pact.Space2))
+                // Saying this out loud matters: a gateway handset still
+                // receives OTPs and private messages, and forwarding those
+                // would be a worse privacy failure than anything this
+                // project defends against.
+                Text(
+                    "Only messages that look like PACT frames are forwarded. "
+                        + "Anything else — OTPs, personal messages — is ignored and "
+                        + "never leaves this phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Pact.Dim,
+                )
             }
 
-            SectionLabel("Received", if (entries.isEmpty()) "nothing yet" else null)
+            SectionLabel("Received", if (entries.isEmpty()) "nothing yet" else "${entries.size}")
             entries.forEach { e ->
-                Card(Modifier.padding(bottom = 8.dp)) {
-                    Column(Modifier.padding(12.dp)) {
-                        Row(Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(
-                                if (e.optBoolean("ok")) "forwarded" else "failed",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = if (e.optBoolean("ok"))
-                                    MaterialTheme.colorScheme.secondary
-                                else MaterialTheme.colorScheme.error,
+                val ok = e.optBoolean("ok")
+                Panel(Modifier.padding(bottom = Pact.Space2)) {
+                    Column(Modifier.padding(Pact.Space3)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Badge(
+                                if (ok) "forwarded" else "failed",
+                                if (ok) Tone.Good else Tone.Bad,
                             )
-                            Text(
+                            Mono(
                                 SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                                     .format(Date(e.optLong("at"))),
-                                style = MaterialTheme.typography.labelSmall,
+                                color = Pact.Faint,
+                                size = 11.sp,
                             )
                         }
                         Text("from ${e.optString("from")}",
-                             style = MaterialTheme.typography.labelSmall)
+                             style = MaterialTheme.typography.labelSmall, color = Pact.Faint,
+                             modifier = Modifier.padding(top = Pact.Space2))
                         // The wire string itself. This is the demo: the same
                         // text that left the other handset.
-                        Text(e.optString("body"),
-                             style = MaterialTheme.typography.bodySmall,
-                             modifier = Modifier.padding(top = 4.dp))
+                        Mono(e.optString("body"), color = Pact.Ink,
+                             modifier = Modifier.padding(top = Pact.Space1))
                     }
                 }
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Pact.Space6))
         }
     }
 }

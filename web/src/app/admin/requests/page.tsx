@@ -12,6 +12,16 @@ interface ArchivedTrace {
   trace_id: string;
   ts?: string;
   completed?: boolean;
+  /** Filled from the persisted transcript, so an archived row reads the same
+   *  as a live one instead of a line of em dashes. Older runs predate the
+   *  `source` field, hence every field being optional. */
+  summary?: string | null;
+  source?: "http" | "sms" | null;
+  status?: "committed" | "rejected" | null;
+  admin_action?: string | null;
+  agents?: number;
+  allocated?: { qty: number; name: string; resource: string }[];
+  unmet?: number | null;
 }
 
 /** Short local timestamp, or an em dash. Kept out of the row so an unparseable
@@ -134,17 +144,32 @@ export default function RequestsPage() {
               ))}
               {archived.map((h) => (
                 <tr key={h.trace_id}>
-                  <th scope="row" className="trace">{h.trace_id}</th>
+                  <th scope="row" className="trace">
+                    {h.trace_id}
+                    {/* Which transport carried it. The one claim this project
+                        rests on is that both paths are the same wire format,
+                        and until now the table could not show that any request
+                        had ever arrived over SMS. */}
+                    {h.source && (
+                      <span className={`srcChip ${h.source}`}>{h.source}</span>
+                    )}
+                  </th>
                   <td className="dimCell nowrap">{fmt(h.ts)}</td>
-                  <td className="dimCell">—</td>
+                  <td>{h.summary || "—"}</td>
                   <td>
-                    <span className={`badge ${h.completed ? "committed" : "incomplete"}`}>
-                      {h.completed ? "completed" : "incomplete"}
+                    <span className={`badge ${h.status ?? (h.completed ? "committed" : "incomplete")}`}>
+                      {h.status ?? (h.completed ? "completed" : "incomplete")}
                     </span>
                   </td>
-                  <td className="dimCell">—</td>
-                  <td className="dimCell">—</td>
-                  <td className="dimCell">from transcript</td>
+                  <td className="dimCell">{h.agents ? h.agents : "—"}</td>
+                  <td className="dimCell">
+                    {h.admin_action ? h.admin_action.replace(/_/g, " ") : "—"}
+                  </td>
+                  <td className="dimCell">
+                    {h.allocated?.length
+                      ? h.allocated.map((a) => `${a.qty} × ${a.name}`).join(", ")
+                      : h.status === "rejected" ? "nothing — rejected" : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -1,212 +1,38 @@
-INFO:     Started server process [42368]
+INFO:     Started server process [26200]
 INFO:     Waiting for application startup.
-2026-08-20 05:24:48,002 INFO pact: PACT backend starting
-2026-08-20 05:24:48,004 INFO pact:   groq:     configured
-2026-08-20 05:24:48,005 INFO pact:   autopilot:True  gate_timeout=25s
-2026-08-20 05:24:50,405 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 05:24:50,410 INFO app.llm.groq_client: groq: warm (openai/gpt-oss-120b, 7927 tokens/min remaining)
-2026-08-20 05:24:50,822 INFO app.notify.fcm: fcm: ready (project pact-80d96)
-2026-08-20 05:24:50,825 INFO pact:   fcm:      ready
-2026-08-20 05:24:52,133 INFO app.db.mongo: mongo: connected to pact
-2026-08-20 05:24:53,674 INFO app.db.indexes: mongo: ensured 29 indexes
-2026-08-20 05:24:53,718 INFO app.db.repo_sessions: auth: restored 76 session(s) across restart
-2026-08-20 05:24:53,720 INFO pact:   auth:     76 session(s) restored
-2026-08-20 05:24:53,756 INFO app.bus.envelope: event seq resumed at 1050
-2026-08-20 05:24:53,859 INFO pact:   geo:      ok (nearest offer 1.00 km)
+2026-08-20 07:22:58,500 INFO pact: PACT backend starting
+2026-08-20 07:22:58,500 INFO pact:   groq:     configured
+2026-08-20 07:22:58,501 INFO pact:   autopilot:True  gate_timeout=25s
+2026-08-20 07:22:59,891 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:22:59,892 INFO app.llm.groq_client: groq: warm (openai/gpt-oss-120b, 7927 tokens/min remaining)
+2026-08-20 07:23:00,165 INFO app.notify.fcm: fcm: ready (project pact-80d96)
+2026-08-20 07:23:00,165 INFO pact:   fcm:      ready
+2026-08-20 07:23:01,491 INFO app.db.mongo: mongo: connected to pact
+2026-08-20 07:23:02,845 INFO app.db.indexes: mongo: ensured 29 indexes
+2026-08-20 07:23:02,925 INFO app.db.repo_sessions: auth: restored 116 session(s) across restart
+2026-08-20 07:23:02,925 INFO pact:   auth:     116 session(s) restored
+2026-08-20 07:23:02,952 INFO app.bus.envelope: event seq resumed at 1388
+2026-08-20 07:23:03,031 INFO pact:   geo:      ok (nearest offer 1.00 km)
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:51595 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:56876 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:65337 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:64512 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:51327 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:60960 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:51540 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:65166 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:52376 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:52808 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:58415 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:60243 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:53539 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:50949 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:63627 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:55416 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:49909 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:56254 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:62840 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:61844 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:65102 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:63533 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:55802 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:52499 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:51581 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:60200 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:52981 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:54951 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:60549 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:50453 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:51797 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:50635 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:58402 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:53500 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:52080 - "WebSocket /ws/agents" 403
-INFO:     connection rejected (403 Forbidden)
-INFO:     connection closed
-INFO:     127.0.0.1:49208 - "WebSocket /ws/agents?token=AR96wfVBzpQtbRvXFS0eBf4fBF6Z1FmaB2oyyLcHB9Y" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:51209 - "WebSocket /ws/agents?token=zUoGgs-4k0yJE1Iq4bMPNYzqSe6FiONowjL_-cL_slw" [accepted]
-INFO:     connection open
-2026-08-20 05:40:54,475 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 05:40:55,153 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 05:40:56,106 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:     connection closed
-INFO:     127.0.0.1:64093 - "WebSocket /ws/agents?token=UJ4OVLclDD-I7sQAvjzZvfWBE1g941eCBI6tiG-j2ik" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:51797 - "WebSocket /ws/agents?token=z-Ic3RYDY66fRkC4o2WnC29TQDVuJl4Rl_AcLr1NlYY" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:52173 - "WebSocket /ws/agents?token=NUoG8nwI-bbP81-0rpskft78zK-sItrt_ZM_FvLR2nk" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:54719 - "WebSocket /ws/agents?token=Aic20jy_uepLdRjwftdj-LyVzBGjybfdoRW6nHodl3U" [accepted]
-INFO:     connection open
-2026-08-20 05:49:07,448 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 05:49:10,302 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 05:49:11,341 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:     connection closed
-INFO:     127.0.0.1:52072 - "WebSocket /ws/agents?token=PYG6YaDCwValqJQw0YfyK296XlG52LxmlwJ3axNlHl4" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:49726 - "WebSocket /ws/agents?token=P-qASVIBkoqC5pj2mg2vhmLDcuWcUSs_2cKerjxx2zk" [accepted]
-INFO:     connection open
-2026-08-20 05:50:56,652 INFO app.bus.gate: gate DEC-DB1903F9 timed out -> hold
-2026-08-20 05:50:57,227 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:     connection closed
-INFO:     127.0.0.1:50060 - "WebSocket /ws/agents?token=-PTQ9J1VgtOofKulmZ0Q7UNYHU-3Y7IGrqogWXDdJ7E" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:57693 - "WebSocket /ws/agents?token=jAXZIiON8e3Qw7QsqRHN5j9Nn1O0zgry2joGQ4JfiI4" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:59978 - "WebSocket /ws/agents?token=jAXZIiON8e3Qw7QsqRHN5j9Nn1O0zgry2joGQ4JfiI4" [accepted]
-INFO:     connection open
-INFO:     connection closed
-2026-08-20 06:04:11,889 INFO app.bus.gate: gate DEC-BBF8571A timed out -> hold
-2026-08-20 06:04:12,405 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:     127.0.0.1:52847 - "WebSocket /ws/agents?token=vq6G773KUwKSjqtkW1-8O-CZV-WjFJnPpgcE0BT-aIo" [accepted]
-INFO:     connection open
-2026-08-20 06:05:13,477 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:05:14,126 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:05:15,223 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:05:18,959 INFO httpx: HTTP Request: GET https://tile.openstreetmap.org/12/2958/1900.png "HTTP/1.1 200 OK"
-2026-08-20 06:05:19,015 INFO httpx: HTTP Request: GET https://tile.openstreetmap.org/12/2957/1900.png "HTTP/1.1 200 OK"
-INFO:     connection closed
-INFO:     127.0.0.1:61308 - "WebSocket /ws/agents?token=7Mfgkg6Ekor6APsXxqjsZtd42gcPwnR12BGJqyNHFV8" [accepted]
-INFO:     connection open
-2026-08-20 06:06:48,357 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:06:49,246 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:06:50,795 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:     connection closed
-INFO:     127.0.0.1:56890 - "WebSocket /ws/agents?token=s-63FpQCDPj9TGkl2wZNOGA3qPVPQ1ewRSSmwG1vclY" [accepted]
-INFO:     connection open
-2026-08-20 06:07:34,380 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:07:34,468 INFO httpx: HTTP Request: GET https://tile.openstreetmap.org/14/11828/7592.png "HTTP/1.1 200 OK"
-2026-08-20 06:07:34,781 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:07:35,776 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:     connection closed
-INFO:     127.0.0.1:58944 - "WebSocket /ws/agents?token=p7qiQMNsR8HNqg4uPpUSZmBlxUrn3eZW4NAvkV1_N78" [accepted]
-INFO:     connection open
-2026-08-20 06:09:06,649 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:09:07,563 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:09:08,739 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:     connection closed
-INFO:     127.0.0.1:59019 - "WebSocket /ws/agents?token=NtP4Nn36DwcNU7fdYCSThQvVbgxLnzyJdVRxT8t-j7g" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:59022 - "WebSocket /ws/agents?token=pbefoYp891osmoP9B6jtsTVgLLjBj27BR1oC6y583p0" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:59026 - "WebSocket /ws/agents?token=E8FJ0qmKAFyH6eKtYwWml22RgDAVUSmpk4Y2wO1yLiI" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:59029 - "WebSocket /ws/agents?token=25OyokGabzsI5AzrPIKFv6skTJ7_wF1V9itOV7Yb10c" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:57521 - "WebSocket /ws/agents?token=uv3T_dGLg204ejguVk8NN_d5OuTZNzGkkppqIT9oYSA" [accepted]
-INFO:     connection open
-2026-08-20 06:11:31,277 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:11:31,884 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-2026-08-20 06:11:32,708 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:     connection closed
-INFO:     127.0.0.1:54933 - "WebSocket /ws/agents?token=uDduChAtBaTCBUliW3qsISLypwM9_5VtQNJMK7UD_bQ" [accepted]
-INFO:     connection open
+2026-08-20 07:24:37,745 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:24:38,482 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:24:39,421 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:25:05,024 INFO app.bus.gate: gate DEC-1518E1AD timed out -> auto_approve
+2026-08-20 07:25:17,349 WARNING app.notify.fcm: fcm send failed (UnregisteredError): NotRegistered
+2026-08-20 07:25:17,787 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:25:26,165 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:25:26,877 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:25:27,711 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:25:53,286 INFO app.bus.gate: gate DEC-A7ED8BD6 timed out -> auto_approve
+2026-08-20 07:25:53,855 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:26:52,017 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:26:52,650 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:26:53,845 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:27:19,413 INFO app.bus.gate: gate DEC-065AE2F9 timed out -> auto_approve
+2026-08-20 07:27:20,244 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:32:43,800 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:32:44,273 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:32:45,096 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-20 07:33:10,614 INFO app.bus.gate: gate DEC-0456EE4A timed out -> auto_approve
+2026-08-20 07:33:12,061 INFO httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"

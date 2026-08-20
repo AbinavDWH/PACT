@@ -69,12 +69,18 @@ def clear() -> None:
     _OUTBOX.clear()
 
 
-async def _fcm_token_for(owner_id: str) -> str | None:
-    """The registration token for a helper, by helper id or uid."""
+async def _fcm_token_for(owner_id: str, collection: str = "helpers") -> str | None:
+    """The registration token for one account, by document id or uid.
+
+    `collection` because seekers register tokens through the same endpoint and
+    live in their own collection -- looking a seeker up in `helpers` returns
+    None and reads as "no registered device", which is the wrong answer given
+    with confidence.
+    """
     db = get_db()
     if db is None or not owner_id:
         return None
-    doc = await db.helpers.find_one(
+    doc = await db[collection].find_one(
         {"$or": [{"_id": owner_id}, {"uid": owner_id}]}, {"fcm_token": 1})
     return (doc or {}).get("fcm_token")
 
@@ -109,6 +115,53 @@ async def push(*, to: str, to_name: str | None, message: str, match_id: str,
         "to_masked": crypto.mask_name(to_name) or to,
         "match_id": match_id, "trace_id": trace_id,
         "message": message, "meta": meta or {}, "ts": _now(),
+        "state": "delivered" if result.get("sent") else "queued",
+        "delivered": bool(result.get("sent")),
+        "delivery_detail": result.get("reason"),
+        "message_id": result.get("message_id"),
+    })
+
+
+async def seeker_push(*, uid: str, title: str, message: str, trace_id: str,
+                      match_id: str | None = None, verdict: str,
+                      meta: dict | None = None) -> dict[str, Any]:
+    """Tell the person who sent a request what was decided about it.
+
+    The seeker app registers an FCM token through the same endpoint the helper
+    app does -- `PUT /helpers/me/push-token` writes to `seekers` when the
+    session role is seeker -- and nothing has ever sent to it. So a seeker
+    could only learn the verdict by opening the app and pulling
+    `/seekers/me/requests`.
+
+    `message` must already be safe for the SEEKER audience: their own data is
+    fine, the helper's identity is not. Callers pass a fixed sentence rather
+    than the arbiter's justification, which is written for an operator.
+
+    Degrades exactly like `push`: no token, or no server credentials, and the
+    outbox row is still written, so the console can show that the seeker was
+    told even when the send could not happen.
+    """
+    token = await _fcm_token_for(uid, collection="seekers")
+    result = await fcm.send(
+        token or "", title=title, body=message,
+        data={"trace_id": trace_id, "match_id": match_id or "",
+              "kind": "verdict", "verdict": verdict},
+    ) if token else {"sent": False, "reason": "seeker has no registered device"}
+
+    if result.get("stale_token"):
+        db = get_db()
+        if db is not None:
+            await db.seekers.update_one({"uid": uid}, {"$unset": {"fcm_token": ""}})
+
+    return await _record({
+        "channel": "push", "kind": "verdict", "to": uid,
+        # A uid is the seeker's identity in this system. `mask_name` is wrong
+        # for it -- it would render "a3f9c1" as "A." -- so the outbox shows a
+        # prefix, the same shape the SMS channel uses for a hashed number.
+        "to_masked": (uid[:4] + "…") if uid else "seeker",
+        "match_id": match_id, "trace_id": trace_id,
+        "message": message, "meta": {**(meta or {}), "verdict": verdict},
+        "ts": _now(),
         "state": "delivered" if result.get("sent") else "queued",
         "delivered": bool(result.get("sent")),
         "delivery_detail": result.get("reason"),

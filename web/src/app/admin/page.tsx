@@ -146,7 +146,12 @@ export default function AdminPage() {
     [orderedRuns],
   );
   const done = useMemo(
-    () => orderedRuns.filter((r) => r.status === "committed" || r.status === "rejected"),
+    // A failed run belongs here too. Left out, it stayed in "Live" forever
+    // and read as still deliberating.
+    () => orderedRuns.filter((r) => r.status === "committed" ||
+                                    r.status === "rejected" ||
+                                    r.status === "unmet" ||
+                                    r.status === "failed"),
     [orderedRuns],
   );
 

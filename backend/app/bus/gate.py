@@ -43,11 +43,23 @@ async def await_admin(
     )
 
     try:
+        if not autopilot:
+            # Autopilot off means a human decides -- so wait for one, with no
+            # deadline. This used to time out and return {"action": "hold"},
+            # which NOTHING downstream reads: the run fell through the reject
+            # and override branches and committed the arbiter's choice anyway,
+            # writing "hold" into the audit trail beside a real stock movement.
+            # Turning autopilot off therefore delayed the automatic approval by
+            # `timeout_s` rather than preventing it, which is the opposite of
+            # what the switch promises. The whole-run ceiling in
+            # scripted._guarded is the backstop against waiting forever.
+            log.info("gate %s waiting for a human (autopilot off)", decision_id)
+            return await fut
         return await asyncio.wait_for(fut, timeout_s)
     except asyncio.TimeoutError:
-        action = "auto_approve" if autopilot else "hold"
-        log.info("gate %s timed out -> %s", decision_id, action)
-        return {"action": action, "decision_id": decision_id, "admin_id": "autopilot"}
+        log.info("gate %s timed out -> auto_approve", decision_id)
+        return {"action": "auto_approve", "decision_id": decision_id,
+                "admin_id": "autopilot"}
     finally:
         _pending.pop(decision_id, None)
 

@@ -3,17 +3,20 @@ package org.pact.app.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import org.pact.app.Loc
 import org.pact.app.MainActivity
 import org.pact.app.Options
 import org.pact.app.Selection
 import org.pact.codec.PactCodec
+import java.util.Locale
 import java.util.UUID
 
 /**
@@ -31,7 +34,8 @@ import java.util.UUID
  * written out in this file.
  */
 @Composable
-fun RequestScreen(activity: MainActivity, onSent: (String, String?) -> Unit) {
+fun RequestScreen(activity: MainActivity, onStatus: () -> Unit,
+                  onSent: (String, String?) -> Unit) {
     val scope = rememberCoroutineScope()
     var sel by remember { mutableStateOf(Selection()) }
     var fix by remember { mutableStateOf<Loc.Fix?>(null) }
@@ -48,69 +52,79 @@ fun RequestScreen(activity: MainActivity, onSent: (String, String?) -> Unit) {
         locating = false
     }
 
-    Scaffold(
+    PactScaffold(
+        sub = "Request",
+        actions = {
+            // Reachable before sending anything, not only afterwards: someone
+            // who closed the app while waiting comes back in here.
+            LinkButton("Status", onStatus)
+            StatusDot(on = fix != null)
+        },
         bottomBar = {
-            Surface(tonalElevation = 3.dp) {
-                Column(Modifier.padding(16.dp)) {
-                    error?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error,
-                             style = MaterialTheme.typography.bodySmall,
-                             modifier = Modifier.padding(bottom = 8.dp))
-                    }
-                    Button(
-                        onClick = {
-                            busy = true; error = null
-                            scope.launch {
-                                val f = fix ?: activity.loc.current()
-                                if (f == null) {
-                                    error = "No position yet. Turn on location and " +
-                                        "step outside if you can — a request without " +
-                                        "a position cannot be routed to anyone."
-                                    busy = false
-                                    return@launch
-                                }
-                                try {
-                                    // The same string, whichever transport carries it.
-                                    val payload = PactCodec.encodeRequest(
-                                        sel = sel.toCodecMap(),
-                                        lat = f.lat, lon = f.lon,
-                                        uid = activity.session.uid ?: "0000",
-                                        seq = activity.session.nextSeq(),
-                                        accuracyM = f.accuracyM,
-                                    )
-                                    val out = activity.transport.send(
-                                        UUID.randomUUID().toString(), payload)
-                                    onSent(out.detail, out.traceId)
-                                } catch (e: Exception) {
-                                    error = "Could not build the request: ${e.message}"
-                                } finally { busy = false }
-                            }
-                        },
-                        enabled = sel.complete && !busy,
-                        modifier = Modifier.fillMaxWidth().height(60.dp),
-                    ) {
-                        if (busy) CircularProgressIndicator(
-                            Modifier.size(22.dp), strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary)
-                        else Text(
-                            if (sel.complete) "Send request" else "Answer the questions above",
-                            style = MaterialTheme.typography.titleMedium)
+            PactBottomBar {
+                error?.let {
+                    NotePanel(Tone.Bad, Modifier.padding(bottom = Pact.Space3)) {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = Pact.Ink)
                     }
                 }
+                PrimaryButton(
+                    text = if (sel.complete) "Send request" else "Answer the questions above",
+                    onClick = {
+                        busy = true; error = null
+                        // NOT the composition scope. This screen calls
+                        // onSent() the moment send() returns, so the screen
+                        // leaves the composition while the send is still in
+                        // flight -- and on the SMS path send() waits up to 30 s
+                        // for the radio. The cancellation surfaced to the user
+                        // as "Could not send by SMS: The coroutine scope left
+                        // the composition", on a request that was fine. The
+                        // activity scope outlives navigation; the outbox still
+                        // covers process death.
+                        activity.lifecycleScope.launch {
+                            val f = fix ?: activity.loc.current()
+                            if (f == null) {
+                                error = "No position yet. Turn on location and " +
+                                    "step outside if you can — a request without " +
+                                    "a position cannot be routed to anyone."
+                                busy = false
+                                return@launch
+                            }
+                            try {
+                                // The same string, whichever transport carries it.
+                                val payload = PactCodec.encodeRequest(
+                                    sel = sel.toCodecMap(),
+                                    lat = f.lat, lon = f.lon,
+                                    uid = activity.session.uid ?: "0000",
+                                    seq = activity.session.nextSeq(),
+                                    accuracyM = f.accuracyM,
+                                )
+                                val out = activity.transport.send(
+                                    UUID.randomUUID().toString(), payload)
+                                onSent(out.detail, out.traceId)
+                            } catch (e: Exception) {
+                                error = "Could not build the request: ${e.message}"
+                            } finally { busy = false }
+                        }
+                    },
+                    enabled = sel.complete,
+                    busy = busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
-        }
+        },
     ) { pad ->
-        Column(Modifier.padding(pad).padding(horizontal = 20.dp)
+        Column(Modifier.padding(pad).padding(horizontal = Pact.Gutter)
                    .verticalScroll(rememberScrollState())) {
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Pact.Space5))
             Text("Request help", style = MaterialTheme.typography.headlineMedium,
-                 fontWeight = FontWeight.Black)
+                 color = Pact.Ink)
             Text("Tap what applies. Nothing to type.",
                  style = MaterialTheme.typography.bodyMedium,
-                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                 color = Pact.Dim,
+                 modifier = Modifier.padding(top = Pact.Space1))
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Pact.Space4))
             PositionCard(fix, locating) {
                 scope.launch { locating = true; fix = activity.loc.current(); locating = false }
             }
@@ -149,7 +163,7 @@ fun RequestScreen(activity: MainActivity, onSent: (String, String?) -> Unit) {
             ChipGrid(Options.urgency.map { it.code to it.pretty },
                      selected = setOf(sel.urgency)) { sel = sel.copy(urgency = it) }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Pact.Space6))
         }
     }
 }
@@ -157,28 +171,70 @@ fun RequestScreen(activity: MainActivity, onSent: (String, String?) -> Unit) {
 private fun Set<String>.toggle(v: String): Set<String> =
     if (contains(v)) this - v else this + v
 
+/**
+ * The one panel on this screen that reports rather than asks.
+ *
+ * The coordinates are set in Fira Code and the state is a badge, matching how
+ * the console prints a position: mono means the machine produced this string,
+ * and the badge says what the system currently believes, in a word, next to
+ * the colour that repeats it.
+ */
 @Composable
 private fun PositionCard(fix: Loc.Fix?, locating: Boolean, onRetry: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(
-        containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f))) {
-        Row(Modifier.padding(14.dp).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween) {
-            Column(Modifier.weight(1f)) {
-                Text("Position", style = MaterialTheme.typography.labelLarge,
-                     fontWeight = FontWeight.Bold)
-                when {
-                    locating && fix == null -> Text("Getting a GPS fix…",
-                        style = MaterialTheme.typography.bodySmall)
-                    fix == null -> Text("No fix yet. Location may be off.",
+    val tone = when {
+        fix != null -> Tone.Good
+        locating -> Tone.Neutral
+        else -> Tone.Warn
+    }
+    Panel(tone = tone) {
+        Column(Modifier.padding(Pact.Space4)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Position", style = MaterialTheme.typography.titleSmall,
+                     color = Pact.Ink)
+                Badge(
+                    when {
+                        fix != null -> "locked"
+                        locating -> "searching"
+                        else -> "no fix"
+                    },
+                    tone,
+                )
+            }
+            Spacer(Modifier.height(Pact.Space2))
+            when {
+                locating && fix == null -> Text(
+                    "Getting a GPS fix…",
+                    style = MaterialTheme.typography.bodySmall, color = Pact.Dim)
+
+                fix == null -> Text(
+                    "No fix yet. Location may be off.",
+                    style = MaterialTheme.typography.bodySmall, color = Pact.Warn)
+
+                else -> {
+                    Mono(
+                        String.format(
+                            Locale.US, "%.5f, %.5f  ±%d m",
+                            fix.lat, fix.lon, fix.accuracyM?.toInt() ?: -1,
+                        ),
+                        color = Pact.Ink,
+                    )
+                    Text(
+                        "via ${fix.provider}. Sent to within ~1 m; helpers see ~1 km "
+                            + "until they accept.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error)
-                    else -> Text(
-                        "Locked, ±${fix.accuracyM?.toInt() ?: -1} m via ${fix.provider}. " +
-                            "Sent to within ~1 m; helpers see ~1 km until they accept.",
-                        style = MaterialTheme.typography.bodySmall)
+                        color = Pact.Dim,
+                        modifier = Modifier.padding(top = Pact.Space1),
+                    )
                 }
             }
-            if (!locating) TextButton(onClick = onRetry) { Text("Refresh") }
+            if (!locating) {
+                Spacer(Modifier.height(Pact.Space2))
+                GhostButton("Refresh position", onRetry)
+            }
         }
     }
 }

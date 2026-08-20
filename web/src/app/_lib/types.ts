@@ -65,7 +65,15 @@ export interface Bubble {
 }
 
 export type RunStatus =
-  | "running" | "awaiting_admin" | "committed" | "rejected" | "error";
+  // "failed" is a run that stopped without deciding anything -- the backend
+  // now says so explicitly rather than leaving the trace with no terminal
+  // event, which the console could only show as permanently in progress.
+  // "unmet" is NOT "rejected". Nobody refused it -- A3 found no supplier
+  // holding that resource inside the 150 km ladder. Collapsing the two told an
+  // operator a human had turned the request down when in fact the shelves were
+  // empty, which is a different problem with a different fix.
+  | "running" | "awaiting_admin" | "committed" | "rejected"
+  | "unmet" | "failed" | "error";
 
 export interface Run {
   traceId: string;

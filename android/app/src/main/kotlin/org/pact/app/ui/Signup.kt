@@ -1,17 +1,27 @@
 package org.pact.app.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import org.pact.app.MainActivity
 
@@ -26,6 +36,11 @@ import org.pact.app.MainActivity
  *
  * There is no password and no verification step. An app that demands account
  * creation from someone trapped in a collapsed building is the wrong product.
+ *
+ * Visually this is the app's front door, so it borrows the web landing page's
+ * treatment -- the eyebrow pill, the gradient-turned headline, the two role
+ * cards laid out like `.lpDoor`, and the shared/never-shared boundary block --
+ * rather than the dense console styling the later screens use.
  */
 @Composable
 fun SignupScreen(activity: MainActivity, onGateway: () -> Unit = {},
@@ -42,80 +57,91 @@ fun SignupScreen(activity: MainActivity, onGateway: () -> Unit = {},
 
     val canSubmit = name.trim().length >= 2 && phone.filter { it.isDigit() }.length >= 6 && !busy
 
-    Scaffold { pad ->
+    PactScaffold(sub = "Set up", hero = true) { pad ->
         Column(
-            Modifier.padding(pad).padding(20.dp).verticalScroll(rememberScrollState()),
+            Modifier.padding(pad).padding(horizontal = Pact.Gutter)
+                .verticalScroll(rememberScrollState()),
         ) {
-            Text("PACT", style = MaterialTheme.typography.headlineLarge,
-                 fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
-            Text("Set up once. You will not be asked again.",
-                 style = MaterialTheme.typography.bodyMedium,
-                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+            Spacer(Modifier.height(Pact.Space5))
+            Eyebrow("Works when the network does not")
+
+            Spacer(Modifier.height(Pact.Space4))
+            HeroTitle("Set up once.", " You will not be asked again.")
+
+            Spacer(Modifier.height(Pact.Space3))
+            Text(
+                "Two fields and a choice. After this the app works with no typing, "
+                    + "and over SMS when there is no data.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Pact.Dim,
+            )
 
             SectionLabel("I am")
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                RoleCard("Asking for help", "I need assistance",
+            Row(horizontalArrangement = Arrangement.spacedBy(Pact.Space3)) {
+                RoleCard("Seeker", "Asking for help", "I need assistance",
                          selected = role == "seeker", modifier = Modifier.weight(1f)) {
                     role = "seeker"
                 }
-                RoleCard("Offering help", "I can deliver or assist",
+                RoleCard("Helper", "Offering help", "I can deliver or assist",
                          selected = role == "helper", modifier = Modifier.weight(1f)) {
                     role = "helper"
                 }
             }
 
             SectionLabel("Your name", "so a helper knows who to look for")
-            OutlinedTextField(
+            PactTextField(
                 value = name, onValueChange = { name = it },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Full name") },
+                placeholder = "Full name",
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Words),
             )
 
             SectionLabel("Phone", "the reply channel when data fails")
-            OutlinedTextField(
+            PactTextField(
                 value = phone, onValueChange = { phone = it },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("+91 …") },
+                placeholder = "+91 …",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
             )
 
             if (role == "helper") {
                 SectionLabel("Group code", "optional")
-                OutlinedTextField(
+                PactTextField(
                     value = groupCode, onValueChange = { groupCode = it.uppercase() },
-                    singleLine = true, modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("e.g. SNJV-4K2") },
+                    placeholder = "e.g. SNJV-4K2",
                 )
                 Text(
                     "Leave this blank to volunteer independently. You will still be "
                         + "matched directly.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 4.dp),
+                    color = Pact.Faint,
+                    modifier = Modifier.padding(top = Pact.Space2),
                 )
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(Pact.Space5))
             PrivacyNote()
 
             error?.let {
-                Spacer(Modifier.height(12.dp))
-                Text(it, color = MaterialTheme.colorScheme.error,
-                     style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(Pact.Space3))
+                NotePanel(Tone.Bad) {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Pact.Ink)
+                }
             }
             notice?.let {
-                Spacer(Modifier.height(12.dp))
-                Text(it, color = MaterialTheme.colorScheme.secondary,
-                     style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(Pact.Space3))
+                NotePanel(Tone.Warn) {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Pact.Ink)
+                }
             }
 
-            Spacer(Modifier.height(20.dp))
-            Button(
+            Spacer(Modifier.height(Pact.Space5))
+            PrimaryButton(
+                text = "Continue",
                 onClick = {
                     busy = true; error = null; notice = null
-                    scope.launch {
+                    // Activity-scoped: this completes by navigating away,
+                    // which would cancel a composition scope mid-request.
+                    activity.lifecycleScope.launch {
                         try {
                             val res = activity.api.signup(
                                 role, name.trim(), phone.trim(),
@@ -148,62 +174,88 @@ fun SignupScreen(activity: MainActivity, onGateway: () -> Unit = {},
                     }
                 },
                 enabled = canSubmit,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-            ) {
-                if (busy) CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp), strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onPrimary)
-                else Text("Continue", style = MaterialTheme.typography.titleMedium)
-            }
+                busy = busy,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             // A spare handset can be turned into the SMS receiver without
             // signing up as anyone. Kept off the main path: it is infrastructure,
             // not a role a person has.
-            TextButton(onClick = onGateway, modifier = Modifier.fillMaxWidth()) {
-                Text("Use this phone as the SMS gateway",
-                     style = MaterialTheme.typography.bodySmall)
-            }
-            Spacer(Modifier.height(24.dp))
+            LinkButton("Use this phone as the SMS gateway", onGateway,
+                       modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(Pact.Space6))
         }
     }
 }
 
+/** `.lpDoor`: a bordered panel that turns blue when it is the chosen one. The
+ *  tag above the title is what makes the two cards scannable at arm's length. */
 @Composable
-private fun RoleCard(title: String, subtitle: String, selected: Boolean,
+private fun RoleCard(tag: String, title: String, subtitle: String, selected: Boolean,
                      modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val colors = if (selected)
-        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary)
-    else CardDefaults.cardColors()
-    Card(onClick = onClick, modifier = modifier.height(96.dp), colors = colors) {
-        Column(Modifier.padding(12.dp).fillMaxSize(),
-               verticalArrangement = Arrangement.Center) {
-            Text(title, style = MaterialTheme.typography.titleSmall,
-                 fontWeight = FontWeight.Bold)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall)
-        }
+    val shape = RoundedCornerShape(Pact.RadiusLg)
+    Column(
+        modifier
+            .background(if (selected) Pact.LlmFill else Pact.Panel, shape)
+            .border(1.dp, if (selected) Pact.Llm.copy(alpha = 0.6f) else Pact.Line, shape)
+            .clickable(onClick = onClick)
+            .semantics { this.role = Role.RadioButton; this.selected = selected }
+            .heightIn(min = 108.dp)
+            .padding(Pact.Space4),
+        verticalArrangement = Arrangement.spacedBy(Pact.Space1),
+    ) {
+        Text(
+            tag.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.4.sp,
+            color = if (selected) Pact.Llm else Pact.Faint,
+        )
+        Text(title, style = MaterialTheme.typography.titleSmall, color = Pact.Ink)
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Pact.Dim)
     }
 }
 
+/** The web landing page's privacy boundary, stacked for a phone. Two tagged
+ *  lists rather than one paragraph: the thing a seeker needs to be able to
+ *  check in five seconds is which side of the line their name is on. */
 @Composable
 fun PrivacyNote() {
-    Card(colors = CardDefaults.cardColors(
-        containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f))) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Your name and number stay private",
-                     style = MaterialTheme.typography.titleSmall,
-                     fontWeight = FontWeight.Bold)
+    NotePanel(Tone.Good) {
+        Text(
+            "What travels is a short code: a situation and a position, no identity.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Pact.Ink,
+        )
+        Spacer(Modifier.height(Pact.Space3))
+        BoundaryList(
+            "Shared", Tone.Good,
+            listOf(
+                "What you need, and how urgent",
+                "An area, rounded to about a kilometre",
+            ),
+        )
+        Spacer(Modifier.height(Pact.Space3))
+        BoundaryList(
+            "Never shared until a helper accepts", Tone.Bad,
+            listOf(
+                "Your name and phone number",
+                "Your exact position",
+            ),
+        )
+    }
+}
+
+/** `.lpBoundaryCol`: a tag over a short list. */
+@Composable
+private fun BoundaryList(tag: String, tone: Tone, items: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(Pact.Space1)) {
+        Badge(tag, tone)
+        items.forEach {
+            Row(horizontalArrangement = Arrangement.spacedBy(Pact.Space2)) {
+                Text("·", style = MaterialTheme.typography.bodySmall, color = tone.ink)
+                Text(it, style = MaterialTheme.typography.bodySmall, color = Pact.Dim)
             }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "They are never put into a message. What travels is a short code: "
-                    + "a situation and a position, no identity. A helper sees only "
-                    + "an approximate area until they accept — then, and only then, "
-                    + "your exact location and contact are shared with that one person.",
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
     }
 }

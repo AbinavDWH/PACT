@@ -3,14 +3,19 @@ package org.pact.app.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.pact.app.MainActivity
+import java.util.Locale
 
 /**
  * Helper mode.
@@ -21,6 +26,10 @@ import org.pact.app.MainActivity
  * transition that releases the seeker's exact position, name and contact --
  * and the server, not this screen, is what enforces that. The app renders
  * whatever the projection returned; it has no unredacted copy to slip.
+ *
+ * The shared/held tags are the console's `.pLabel`, deliberately: an operator
+ * looking over a helper's shoulder should recognise the same marks they see on
+ * the privacy panel in the admin console.
  */
 @Composable
 fun AssignmentsScreen(activity: MainActivity, onSignedOut: () -> Unit) {
@@ -44,41 +53,58 @@ fun AssignmentsScreen(activity: MainActivity, onSignedOut: () -> Unit) {
 
     LaunchedEffect(Unit) { refresh() }
 
-    Scaffold { pad ->
-        Column(Modifier.padding(pad).padding(horizontal = 20.dp)
+    PactScaffold(
+        sub = activity.session.orgName ?: "Independent volunteer",
+        actions = {
+            LinkButton("Sign out", onClick = {
+                // Activity-scoped: signing out navigates away, and the
+                // server call must not be cancelled by that navigation.
+                activity.lifecycleScope.launch {
+                    runCatching { activity.api.signout() }
+                    activity.session.signOut()
+                    onSignedOut()
+                }
+            })
+        },
+    ) { pad ->
+        Column(Modifier.padding(pad).padding(horizontal = Pact.Gutter)
                    .verticalScroll(rememberScrollState())) {
 
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text("Assignments", style = MaterialTheme.typography.headlineMedium,
-                         fontWeight = FontWeight.Black)
-                    Text(activity.session.orgName ?: "Independent volunteer",
-                         style = MaterialTheme.typography.bodyMedium,
-                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                }
-                TextButton(onClick = {
-                    scope.launch {
-                        runCatching { activity.api.signout() }
-                        activity.session.signOut()
-                        onSignedOut()
-                    }
-                }) { Text("Sign out") }
-            }
+            Spacer(Modifier.height(Pact.Space5))
+            Text("Assignments", style = MaterialTheme.typography.headlineMedium,
+                 color = Pact.Ink)
+            Text("What has been allocated to you, and why.",
+                 style = MaterialTheme.typography.bodyMedium, color = Pact.Dim,
+                 modifier = Modifier.padding(top = Pact.Space1))
 
-            Spacer(Modifier.height(12.dp))
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            Spacer(Modifier.height(Pact.Space4))
+            if (loading) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                    color = Pact.Llm,
+                    trackColor = Pact.Panel2,
+                )
+            }
             error?.let {
-                Text("Could not load: $it", color = MaterialTheme.colorScheme.error,
-                     style = MaterialTheme.typography.bodyMedium)
+                NotePanel(Tone.Bad) {
+                    Text("Could not load: $it",
+                         style = MaterialTheme.typography.bodySmall, color = Pact.Ink)
+                }
             }
             if (!loading && rows.isEmpty() && error == null) {
-                Text("Nothing assigned to you yet.",
-                     style = MaterialTheme.typography.bodyMedium)
+                Panel {
+                    Column(Modifier.padding(Pact.Space5)) {
+                        Text("Nothing assigned to you yet.",
+                             style = MaterialTheme.typography.titleSmall, color = Pact.Ink)
+                        Text("This screen fills in when an allocation is approved.",
+                             style = MaterialTheme.typography.bodySmall, color = Pact.Faint,
+                             modifier = Modifier.padding(top = Pact.Space1))
+                    }
+                }
             }
 
             rows.forEach { row ->
+                Spacer(Modifier.height(Pact.Space3))
                 AssignmentCard(row, onAccept = {
                     scope.launch {
                         runCatching {
@@ -95,9 +121,8 @@ fun AssignmentsScreen(activity: MainActivity, onSignedOut: () -> Unit) {
                         refresh()
                     }
                 })
-                Spacer(Modifier.height(10.dp))
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Pact.Space6))
         }
     }
 }
@@ -109,76 +134,129 @@ private fun AssignmentCard(row: JSONObject, onAccept: () -> Unit, onDecline: () 
     val alloc = row.optJSONObject("allocation") ?: JSONObject()
     val seeker = row.optJSONObject("seeker") ?: JSONObject()
 
-    Card {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                "${alloc.optInt("qty")} × ${alloc.optString("resource").replace('_', ' ')}",
-                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+    // Same status vocabulary as the console's card classes: warn while it is
+    // waiting on a human, good once it is committed, quiet once it is out of
+    // this helper's hands.
+    val tone = when (state) {
+        "accepted" -> Tone.Good
+        "awaiting_assignment" -> Tone.Warn
+        "declined" -> Tone.Neutral
+        else -> Tone.Llm
+    }
+
+    Panel(tone = tone) {
+        Column(Modifier.padding(Pact.Space4)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    "${alloc.optInt("qty")} × ${alloc.optString("resource").replace('_', ' ')}",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Pact.Ink,
+                    modifier = Modifier.weight(1f),
+                )
+                // One word, not the raw state: "awaiting_assignment" set as a
+                // badge is wider than the title it sits beside. The sentence
+                // at the foot of the card carries the detail.
+                Badge(
+                    when (state) {
+                        "awaiting_assignment" -> "awaiting"
+                        "" -> "offered"
+                        else -> state
+                    },
+                    tone,
+                )
+            }
             Text("ETA ${alloc.optInt("eta_min")} min · ${alloc.optString("name")}",
-                 style = MaterialTheme.typography.bodyMedium)
+                 style = MaterialTheme.typography.bodySmall, color = Pact.Dim,
+                 modifier = Modifier.padding(top = Pact.Space1))
 
-            Spacer(Modifier.height(10.dp))
-            AssistChip(onClick = {}, label = {
-                Text(if (revealed) "Details released" else "Approximate area only")
-            })
+            Spacer(Modifier.height(Pact.Space3))
 
-            Spacer(Modifier.height(10.dp))
             // Rendered straight from the projected payload. When `revealed` is
             // false these keys are ABSENT, not blanked -- so there is nothing
             // here to accidentally display.
-            Text("Position: ${seeker.optDouble("lat", 0.0)}, " +
-                     "${seeker.optDouble("lon", 0.0)}" +
-                     if (revealed) "" else "  (~1 km)",
-                 style = MaterialTheme.typography.bodySmall)
+            Column(verticalArrangement = Arrangement.spacedBy(Pact.Space2)) {
+                Field(
+                    if (revealed) "shared" else "masked",
+                    if (revealed) Tone.Good else Tone.Warn,
+                    "Position",
+                ) {
+                    Mono(
+                        String.format(
+                            Locale.US, "%.5f, %.5f",
+                            seeker.optDouble("lat", 0.0), seeker.optDouble("lon", 0.0),
+                        ) + if (revealed) "" else "  (~1 km)",
+                        color = Pact.Ink,
+                    )
+                }
+
+                if (revealed) {
+                    Field("shared", Tone.Good, "Name") {
+                        Text(seeker.optString("name", "—"),
+                             style = MaterialTheme.typography.bodyMedium, color = Pact.Ink)
+                    }
+                    Field("shared", Tone.Good, "Contact") {
+                        Mono(seeker.optString("contact", "—"), color = Pact.Ink)
+                    }
+                } else {
+                    Field("held", Tone.Bad, "Name and contact") {
+                        Text("Released when you accept.",
+                             style = MaterialTheme.typography.bodySmall, color = Pact.Dim)
+                    }
+                }
+            }
 
             if (revealed) {
-                Text("Name: ${seeker.optString("name", "—")}",
-                     style = MaterialTheme.typography.bodySmall)
-                Text("Contact: ${seeker.optString("contact", "—")}",
-                     style = MaterialTheme.typography.bodySmall)
                 row.optString("delivery_code").takeIf { it.isNotBlank() }?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text("Delivery code $it",
-                         style = MaterialTheme.typography.titleMedium,
-                         fontWeight = FontWeight.Bold,
-                         color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(Pact.Space3))
+                    NotePanel(Tone.Llm) {
+                        Badge("Delivery code", Tone.Llm)
+                        Spacer(Modifier.height(Pact.Space1))
+                        Mono(it, size = 22.sp, color = Pact.Llm)
+                    }
                 }
-            } else {
-                Text("Name and contact are released when you accept.",
-                     style = MaterialTheme.typography.bodySmall,
-                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
             }
 
             row.optString("justification").takeIf { it.isNotBlank() && it != "null" }?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall,
-                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+                Spacer(Modifier.height(Pact.Space3))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = Pact.Dim)
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Pact.Space4))
             when (state) {
                 "awaiting_assignment" -> Text(
                     "Your organization must assign a named helper before this can "
                         + "be accepted.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    style = MaterialTheme.typography.bodySmall, color = Pact.Warn)
 
                 "accepted" -> Text("Accepted. Go when ready.",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.secondary)
+                    style = MaterialTheme.typography.titleSmall, color = Pact.Good)
 
                 "declined" -> Text("Declined. Being reallocated.",
-                    style = MaterialTheme.typography.bodySmall)
+                    style = MaterialTheme.typography.bodySmall, color = Pact.Faint)
 
-                else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = onAccept, modifier = Modifier.weight(1f)) {
-                        Text("Accept")
-                    }
-                    OutlinedButton(onClick = onDecline, modifier = Modifier.weight(1f)) {
-                        Text("Decline")
-                    }
+                else -> Row(horizontalArrangement = Arrangement.spacedBy(Pact.Space3)) {
+                    PrimaryButton("Accept", onAccept, modifier = Modifier.weight(1f))
+                    GhostButton("Decline", onDecline, modifier = Modifier.weight(1f),
+                                tone = Pact.Bad)
                 }
             }
+        }
+    }
+}
+
+/** `.privacy` row: the disclosure tag, then the field name, then the value.
+ *  The tag comes first because on this screen it is the more important half. */
+@Composable
+private fun Field(tag: String, tone: Tone, label: String, value: @Composable () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Pact.Space3)) {
+        Badge(tag, tone, Modifier.width(64.dp))
+        Column {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = Pact.Faint)
+            value()
         }
     }
 }

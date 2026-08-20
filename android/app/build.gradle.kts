@@ -12,6 +12,8 @@
 //
 // Compose stays, because the alternative is several hundred lines of XML.
 
+import java.util.Properties
+
 plugins {
     id("com.android.application") version "8.7.3"
     kotlin("android") version "2.0.21"
@@ -33,6 +35,22 @@ if (hasFirebase) {
     logger.lifecycle("google-services.json absent: building without FCM push")
 }
 
+// Machine-local build settings.
+//
+// Gradle does NOT expose local.properties as project properties -- the Android
+// plugin reads it only for sdk.dir. So a value written there was silently
+// ignored and the build fell back to the hardcoded defaults below, which is
+// indistinguishable from a working build until the phone cannot reach the
+// server. Read it explicitly, and let -P still win so a one-off override
+// works without editing the file.
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { p -> load(p) }
+}
+
+fun setting(name: String, fallback: String): String =
+    (project.findProperty(name) as String?) ?: localProps.getProperty(name) ?: fallback
+
 android {
     namespace = "org.pact.app"
     compileSdk = 35
@@ -46,14 +64,13 @@ android {
 
         // The phone is not on localhost. Override per machine in
         // android/local.properties or with -PpactApiBase=...
-        val apiBase = (project.findProperty("pactApiBase") as String?)
-            ?: "http://192.168.1.6:8000"
+        val apiBase = setting("pactApiBase", "http://192.168.1.6:8000")
         buildConfigField("String", "API_BASE", "\"$apiBase\"")
 
         // Where an SMS-fallback message is sent when there is no data. A real
         // deployment uses a shortcode; the demo uses a second handset or the
         // backend's /sms/webhook via the simulator.
-        val smsTo = (project.findProperty("pactSmsTo") as String?) ?: "+919999999999"
+        val smsTo = setting("pactSmsTo", "+919999999999")
         buildConfigField("String", "SMS_TO", "\"$smsTo\"")
 
         // Lets the app skip the FCM code paths entirely when it was built

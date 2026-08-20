@@ -3,6 +3,8 @@ package org.pact.app
 import android.Manifest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
@@ -29,6 +31,15 @@ class MainActivity : ComponentActivity() {
     ) { permissionsAnswered = true }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Android 15 forces this on a targetSdk-35 app anyway; declaring it
+        // makes older devices behave the same instead of two different
+        // layouts to reason about. Both bars are asked for dark scrims so the
+        // system icons stay light against the console palette -- the app has
+        // no light theme.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         super.onCreate(savedInstanceState)
 
         // Loads shared/codec/pact_tables.v1.json out of assets. Everything the

@@ -24,6 +24,7 @@ unreachable, because the demo must survive venue wifi.
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import time
 from typing import Any
@@ -37,9 +38,12 @@ from app.db import repo_matches, repo_offers, repo_requests
 from app.agents import dedupe, fallbacks, solver
 from app.llm import groq_client, prompts
 from app.llm.schemas import AdvocatesOut, ArbiterOut, NarratorOut, TriageOut
+from app.notify import channels
 from app.notify import dispatcher as notify
 from app.privacy import policy as privacy_policy
 from app.privacy import redact
+
+log = logging.getLogger(__name__)
 
 AGENTS = [
     ("a0_intake", "Intake Normalizer"),
@@ -169,6 +173,31 @@ def _option(option_id: str, label: str, allocs: list[dict], qty: int,
     }
     opt["score_components"] = solver.explain(opt, qty, cand_scores)
     return opt
+
+
+async def _tell_seeker(request: dict[str, Any], trace_id: str, verdict: str,
+                       title: str, message: str, match_id: str | None = None) -> None:
+    """Push the verdict to the person who sent the request.
+
+    Best-effort by design. The pull path -- GET /seekers/me/requests, which the
+    app polls -- is what actually guarantees they can find out; this is what
+    lets them find out without having to look. So a failure here is logged and
+    swallowed: a seeker not receiving a notification is bad, and a notification
+    failure taking down the run that produced the allocation is worse.
+
+    The message is written here rather than reused from the arbiter's
+    justification, which is addressed to an operator and names suppliers the
+    SEEKER audience may not see.
+    """
+    uid = request.get("uid")
+    if not uid:
+        return
+    try:
+        await channels.seeker_push(
+            uid=uid, title=title, message=message, trace_id=trace_id,
+            match_id=match_id, verdict=verdict)
+    except Exception:
+        log.debug("seeker notification skipped", exc_info=True)
 
 
 async def run(request: dict[str, Any]) -> dict[str, Any]:
@@ -322,6 +351,10 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
                           {"text": f"No supplier of {pretty} in range. Request unmet."},
                           agent="a5_solver", run_id=run_id)
         await repo_requests.set_status(trace_id, "unmet")
+        await _tell_seeker(
+            request, trace_id, "unmet", "No help available yet",
+            f"No supplier in range is holding {pretty}. Your request stays open "
+            "and is retried as stock changes.")
         await bus.publish(trace_id, "run.completed", {"status": "unmet"}, run_id=run_id)
         return {"status": "unmet", "trace_id": trace_id}
 
@@ -564,6 +597,10 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
                           {"reason": "admin_rejected", "prior_run_id": run_id},
                           agent="a11_replanner", run_id=run_id)
         await repo_requests.set_status(trace_id, "rejected")
+        await _tell_seeker(
+            request, trace_id, "rejected", "Request rejected",
+            "An operator rejected this allocation. Your request has not been "
+            "closed — it is being re-planned against other suppliers.")
         await bus.publish(trace_id, "run.completed", {"status": "rejected"}, run_id=run_id)
         return {"status": "rejected", "trace_id": trace_id}
 
@@ -640,6 +677,13 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
         justification=arb.justification,
         approved_by=result.get("admin_id", "autopilot"), unmet=unmet)
     await repo_requests.set_status(trace_id, "allocated", match_id=match_id)
+    _sent = sum(a["qty"] for a in final["allocations"])
+    _eta = max((a["eta_min"] for a in final["allocations"]), default=0)
+    await _tell_seeker(
+        request, trace_id, "approved", "Request approved",
+        f"{_sent} x {pretty} approved for you, about {_eta} minutes away. "
+        f"Delivery code {code}.",
+        match_id=match_id)
 
     await bus.publish(
         trace_id, "decision.committed",
@@ -711,3 +755,85 @@ async def run(request: dict[str, Any]) -> dict[str, Any]:
     )
     return {"status": "committed", "trace_id": trace_id, "match_id": match_id,
             "allocations": final["allocations"]}
+
+
+# ---------------------------------------------------------------------------
+# Spawning
+# ---------------------------------------------------------------------------
+
+# Strong references to in-flight runs. asyncio holds only WEAK references to
+# tasks, so a bare `create_task(scripted.run(...))` can be collected
+# mid-deliberation -- the same hazard deps._spawn already documents for token
+# writes, reintroduced on the pipeline. The transcript shows what it looks like
+# from outside: a run whose events simply stop, with no terminal event, sitting
+# in All Requests as "incomplete" forever.
+_INFLIGHT: set[asyncio.Task[Any]] = set()
+
+
+async def _guarded(request: dict[str, Any]) -> dict[str, Any]:
+    """Run, and make sure the transcript always ends.
+
+    A deliberation that raises used to leave the trace with no `run.completed`,
+    which is indistinguishable from one still in progress. A failed run is a
+    fact worth recording -- the operator needs to know the request was received
+    and then dropped, not wonder whether it is still thinking.
+    """
+    trace_id = request.get("request_id") or "REQ-UNKNOWN"
+
+    # A hard ceiling on a whole deliberation.
+    #
+    # The guard below catches a run that RAISES. It cannot catch one that
+    # HANGS, and that is the failure actually seen on venue wifi: an SMS-borne
+    # request stopped after "advocates: request timed out", published nothing
+    # further, and sat in All Requests with no terminal event for ten minutes
+    # while fresh runs completed normally beside it. An operator cannot tell
+    # that from a request still being thought about.
+    #
+    # Sized off the admin gate, which is a legitimate long wait -- a run parked
+    # for a human decision must not be killed for being patient.
+    ceiling = max(180.0, float(get_settings().gate_timeout_s or 0) + 120.0)
+    try:
+        return await asyncio.wait_for(run(request), timeout=ceiling)
+    except TimeoutError:
+        log.error("run %s exceeded %.0fs ceiling", trace_id, ceiling)
+        await bus.publish(trace_id, "error",
+                          {"code": "RUN_TIMEOUT", "detail": f"exceeded {ceiling:.0f}s"})
+        await bus.publish(trace_id, "run.completed",
+                          {"status": "failed",
+                           "reason": f"no progress within {ceiling:.0f}s"})
+        return {"status": "failed", "trace_id": trace_id, "error": "timeout"}
+    except asyncio.CancelledError:
+        # Shutdown. Say so rather than leaving a silent stump.
+        await bus.publish(trace_id, "run.completed",
+                          {"status": "failed", "reason": "server stopped mid-run"})
+        raise
+    except Exception as exc:
+        log.exception("run failed for %s", trace_id)
+        await bus.publish(trace_id, "error",
+                          {"code": "RUN_FAILED", "detail": f"{type(exc).__name__}: {exc}"})
+        await bus.publish(trace_id, "run.completed",
+                          {"status": "failed", "reason": str(exc)[:300]})
+        return {"status": "failed", "trace_id": trace_id, "error": str(exc)}
+
+
+def spawn(request: dict[str, Any]) -> asyncio.Task[dict[str, Any]]:
+    """Start a deliberation in the background, holding a reference until it
+    ends. Every caller should use this rather than create_task(run(...))."""
+    task = asyncio.get_running_loop().create_task(_guarded(request))
+    _INFLIGHT.add(task)
+    task.add_done_callback(_INFLIGHT.discard)
+    return task
+
+
+def spawn_recorded(request: dict[str, Any], sink: list[dict[str, Any]]) -> asyncio.Task[Any]:
+    """spawn(), plus append the outcome to an in-memory list. Used by the admin
+    portal's injected requests, which surface in GET /admin/runs."""
+    async def _go() -> dict[str, Any]:
+        result = await _guarded(request)
+        sink.append({**request, **result})
+        return result
+
+    task = asyncio.get_running_loop().create_task(_go())
+    _INFLIGHT.add(task)
+    task.add_done_callback(_INFLIGHT.discard)
+    return task

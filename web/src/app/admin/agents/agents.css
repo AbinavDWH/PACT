@@ -1,0 +1,174 @@
+/* Agents section. The palette does the arguing: every LLM stage is one colour
+   and every Python stage another, consistently, from the law strip at the top
+   to the last row. */
+
+.lawStrip {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: stretch;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--gutter) 0;
+}
+.lawHalf {
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.llmHalf { border-color: color-mix(in srgb, var(--llm) 40%, var(--line)); }
+.detHalf { border-color: color-mix(in srgb, var(--det) 40%, var(--line)); }
+.lawHalf p { margin: var(--space-2) 0 0; font-size: 0.88rem; color: var(--dim); line-height: 1.7; }
+.lawTag {
+  display: inline-block;
+  padding: 0.15rem var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.lawTag.llm { background: var(--llm-fill, color-mix(in srgb, var(--llm) 16%, transparent)); color: var(--llm); }
+.lawTag.det { background: var(--det-fill); color: var(--det); }
+.lawArrow { align-self: center; color: var(--faint); font-size: 1.4rem; }
+
+.pipeHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-right: var(--gutter);
+}
+.pipeLive { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.pipeCount { font-size: 0.8rem; color: var(--faint); }
+
+.pipe {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--gutter) var(--space-6);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  /* The left edge carries the kind, so the pipeline reads as two interleaved
+     colours before a word of it is read. */
+  border-left: 3px solid var(--line-strong);
+  background: var(--panel);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.stage.python { border-left-color: var(--det); }
+.stage.llm    { border-left-color: var(--llm); }
+.stage.human  { border-left-color: var(--warn); }
+.stage.opt    { opacity: 0.62; }
+.stage.ran    { background: var(--panel2); border-color: var(--line-strong); opacity: 1; }
+
+.stageN {
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--faint);
+  padding-top: 0.1rem;
+}
+.stage.ran .stageN { color: var(--ink); }
+
+.stageBody { min-width: 0; }
+.stageTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.stageName { font-size: 0.98rem; font-weight: 600; }
+
+.kindChip {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+}
+.kindChip.python { background: var(--det-fill); color: var(--det); }
+.kindChip.llm    { background: color-mix(in srgb, var(--llm) 16%, transparent); color: var(--llm); }
+.kindChip.human  { background: var(--warn-fill); color: var(--warn); }
+
+.ranChip, .fellChip, .optChip {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+}
+.ranChip { background: var(--det-fill); color: var(--good); }
+.ranChip.llmOk { background: color-mix(in srgb, var(--llm) 16%, transparent); color: var(--llm); }
+.fellChip { background: var(--warn-fill); color: var(--warn); }
+.optChip { background: var(--panel2); color: var(--faint); border: 1px solid var(--line); }
+
+.stageWhat { margin: var(--space-2) 0 0; font-size: 0.88rem; line-height: 1.6; }
+.stageWhy  { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--faint); line-height: 1.6; }
+
+.pipeFoot {
+  padding: 0 var(--gutter) var(--space-6);
+  max-width: 78ch;
+  font-size: 0.86rem;
+  color: var(--dim);
+  line-height: 1.75;
+}
+
+/* ---- live output ------------------------------------------------------- */
+/* The stage the run is sitting in right now. A pulsing edge rather than a
+   colour swap, so the kind colour it already carries is not overwritten. */
+.stage.here {
+  border-color: var(--llm);
+  box-shadow: var(--glow-llm);
+}
+.hereChip {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--llm) 20%, transparent);
+  color: var(--llm);
+  animation: pulseChip 1.4s ease-in-out infinite;
+}
+@keyframes pulseChip { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .hereChip { animation: none; }
+}
+
+.stageOut {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: var(--space-2);
+}
+.stageSaid { margin: 0; font-size: 0.86rem; line-height: 1.65; color: var(--ink); }
+.stageTool {
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.74rem;
+  color: var(--det);
+  line-height: 1.6;
+  word-break: break-all;
+}
+.stageFact {
+  justify-self: start;
+  font-size: 0.74rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--panel2);
+  color: var(--dim);
+  border: 1px solid var(--line);
+}
+
+@media (max-width: 620px) {
+  .lawStrip { grid-template-columns: 1fr; }
+  .lawArrow { transform: rotate(90deg); justify-self: center; }
+  .stage { grid-template-columns: 2.4rem minmax(0, 1fr); padding: var(--space-3); }
+}

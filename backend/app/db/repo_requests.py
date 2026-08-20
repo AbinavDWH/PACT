@@ -122,6 +122,21 @@ async def set_triage(request_id: str, triage: dict[str, Any]) -> None:
     await set_status(request_id, "triaged", triage=triage)
 
 
+async def for_seeker(uid: str, limit: int = 10) -> list[dict]:
+    """The requests one person made, newest first.
+
+    The seeker-facing counterpart of `recent()`. Filtering on `seeker_uid`
+    rather than taking a request id from the caller is what keeps the status
+    endpoint from becoming a way to read someone else's request by guessing
+    REQ-XXXXXX -- there are 16.7 million of those, which is not a lot.
+    """
+    db = get_db()
+    if db is None or not uid:
+        return []
+    cursor = db.requests.find({"seeker_uid": uid}).sort("created_at", -1)
+    return await cursor.to_list(limit)
+
+
 async def recent(limit: int = 50, status: str | None = None) -> list[dict]:
     db = get_db()
     if db is None:

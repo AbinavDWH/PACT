@@ -83,6 +83,23 @@ class Api(private val base: String, private val session: Session) {
         JSONObject().put("payload", payload).put("transport", "http").toString(),
         auth = false)
 
+    // -- seeker side --------------------------------------------------------
+
+    /**
+     * What happened to the requests this device sent.
+     *
+     * The uid is passed as well as the bearer token because the two are
+     * checked against each other: with `require_auth` on the token wins and a
+     * mismatched uid is a 403, and with it off -- the demo build -- the
+     * parameter is the only thing that identifies the caller. Sending both
+     * means one call works either way.
+     *
+     * Returns the whole envelope, not just the array: `settled` tells the
+     * status screen whether there is any point polling again.
+     */
+    suspend fun myRequests(uid: String, limit: Int = 10): JSONObject = request(
+        "GET", "/api/v1/seekers/me/requests?uid=$uid&limit=$limit")
+
     // -- helper side --------------------------------------------------------
 
     suspend fun assignments(actorId: String): JSONArray {

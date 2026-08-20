@@ -16,6 +16,7 @@ import { usePathname } from "next/navigation";
 
 const SECTIONS = [
   { href: "/admin", label: "Deliberation", hint: "Watch the agents decide" },
+  { href: "/admin/agents", label: "Agents", hint: "What the ten agents are, and which of them is a model" },
   { href: "/admin/map", label: "Map", hint: "Where the request and helpers are" },
   { href: "/admin/privacy", label: "Privacy", hint: "What was hidden, and from whom" },
   { href: "/admin/requests", label: "Requests", hint: "Everything received so far" },

@@ -6,7 +6,6 @@ list and the seed/inventory reads the portal uses to stay off hardcoded values.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -111,14 +110,12 @@ async def simulate(payload: SimulateRequest):
         request["lat"] = lat
         request["lon"] = lon
 
-    asyncio.create_task(_run_and_record(request))
+    scripted.spawn_recorded(request, _runs)
     return {"status": "accepted", "trace_id": request["request_id"],
             "lat": lat, "lon": lon}
 
 
-async def _run_and_record(request: dict[str, Any]) -> None:
-    result = await scripted.run(request)
-    _runs.append({**request, **result})
+
 
 
 @router.get("/runs")
@@ -312,12 +309,12 @@ async def replan(request_id: str, payload: ReplanRequest):
         request_id, "replan", payload.admin_id, note=payload.reason,
         trace_id=request_id)
 
-    asyncio.create_task(scripted.run({
+    scripted.spawn({
         "request_id": request_id,
         "need": original.get("need"), "quantity": original.get("quantity"),
         "location_name": "reported position", "urgency": original.get("urgency"),
         **({"lat": original["loc"]["coordinates"][1],
             "lon": original["loc"]["coordinates"][0]} if original.get("loc") else {}),
         "uid": original.get("seeker_uid"),
-    }))
+    })
     return {"status": "accepted", "trace_id": request_id, "replan": True}

@@ -34,6 +34,7 @@ from app.notify import fcm
 from app.routers import admin as admin_router
 from app.routers import assignments as assignments_router
 from app.routers import ingest as ingest_router
+from app.routers import seeker as seeker_router
 from app.routers import session as session_router
 from app.routers import tiles as tiles_router
 from app.routers import ws as ws_router
@@ -111,6 +112,7 @@ app.include_router(admin_router.public)
 app.include_router(admin_router.router)
 app.include_router(ingest_router.router)
 app.include_router(assignments_router.router)
+app.include_router(seeker_router.router)
 app.include_router(session_router.router)
 app.include_router(tiles_router.router)
 

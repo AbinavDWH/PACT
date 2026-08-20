@@ -112,7 +112,7 @@ async def ingest_payload(payload: str, transport: str, from_number: str | None) 
             }
             if request["lat"] is None:
                 request.pop("lat"), request.pop("lon")
-            asyncio.create_task(scripted.run(request))
+            scripted.spawn(request)
             result["trace_id"] = request["request_id"]
             result["dispatched"] = True
 

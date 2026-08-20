@@ -198,7 +198,16 @@ function reduce(run: Run, ev: Envelope): Run {
       break;
 
     case "run.completed":
-      next.status = str("status") === "committed" ? "committed" : "rejected";
+      // Three outcomes, not two. Reading "failed" as "rejected" would claim a
+      // human or an arbiter turned the request down, when in fact the run
+      // never got that far.
+      {
+        const st = str("status");
+        next.status = st === "committed" ? "committed"
+                    : st === "failed" ? "failed"
+                    : st === "unmet" ? "unmet"
+                    : "rejected";
+      }
       next.msTotal = num("ms_total");
       // geo_live false means $geoNear returned nothing and the run used
       // fixtures. Surfacing it is the only way an operator can tell.
