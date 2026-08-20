@@ -1,5 +1,7 @@
 import {
   ActivityEntry,
+  AiTriageBatchResponse,
+  AiTriageResult,
   CreateRequestBody,
   HubRequest,
   LiveLocation,
@@ -99,6 +101,28 @@ export function confirmReceipt(body: {
       body: JSON.stringify(body),
     }
   );
+}
+
+export function aiTriageRequest(id: string) {
+  return http<AiTriageResult>(`/api/v1/requests/${id}/ai-triage`, {
+    method: "POST",
+  });
+}
+
+export function aiTriageAllRequests() {
+  return http<AiTriageBatchResponse>("/api/v1/requests/ai-triage-all", {
+    method: "POST",
+  });
+}
+
+export function getAiTriageConfig() {
+  return http<{ enabled: boolean; groq_enabled: boolean; model: string }>("/api/v1/config/ai-triage");
+}
+
+export function setAiTriageConfig(enabled: boolean) {
+  return http<{ enabled: boolean }>(`/api/v1/config/ai-triage?enabled=${enabled}`, {
+    method: "POST",
+  });
 }
 
 export function listActivity(limit = 50) {

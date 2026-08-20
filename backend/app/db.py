@@ -55,6 +55,10 @@ def init_db():
                 ai_flag_json TEXT,
                 ai_match_reasoning TEXT,
                 ai_supply_status TEXT,
+                ai_triage_decision TEXT,
+                ai_triage_reason TEXT,
+                ai_triage_confidence REAL,
+                ai_triage_flags_json TEXT,
                 total_matched INTEGER DEFAULT 0,
                 matches_json TEXT DEFAULT '[]',
                 payload_json TEXT DEFAULT '{}',
@@ -72,6 +76,8 @@ def init_db():
                 resources_json TEXT NOT NULL DEFAULT '{}',
                 eta_hours INTEGER DEFAULT 4,
                 radius_km INTEGER DEFAULT 50,
+                latitude REAL,
+                longitude REAL,
                 phone TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -137,13 +143,41 @@ def init_db():
             )
         """)
 
-        # 7. Counters / Sequences Table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sequence_counters (
-                key TEXT PRIMARY KEY,
-                current_value INTEGER NOT NULL
-            )
-        """)
+        # Migrations for existing databases
+        for col_name, col_type in [
+            ("ai_triage_decision", "TEXT"),
+            ("ai_triage_reason", "TEXT"),
+            ("ai_triage_confidence", "REAL"),
+            ("ai_triage_flags_json", "TEXT"),
+            ("handed_over_at", "TEXT"),
+            ("handed_over_by", "TEXT"),
+            ("received_at", "TEXT"),
+            ("received_by", "TEXT"),
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE requests ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
+
+        for col_name, col_type in [
+            ("handed_over_at", "TEXT"),
+            ("handed_over_by", "TEXT"),
+            ("received_at", "TEXT"),
+            ("received_by", "TEXT"),
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE plans ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
+
+        for col_name, col_type in [
+            ("latitude", "REAL"),
+            ("longitude", "REAL"),
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE organizations ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
 
         conn.commit()
 
@@ -182,6 +216,7 @@ def save_request(rec: dict):
                 status, plan_id, latitude, longitude, sms_canonical, checksum,
                 from_number, reject_reason, sync_mode, ai_priority_note,
                 ai_flag_json, ai_match_reasoning, ai_supply_status,
+                ai_triage_decision, ai_triage_reason, ai_triage_confidence, ai_triage_flags_json,
                 total_matched, matches_json, payload_json,
                 created_at, reviewed_at, updated_at
             ) VALUES (
@@ -191,6 +226,7 @@ def save_request(rec: dict):
                 ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?,
+                ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?
             )
@@ -221,6 +257,10 @@ def save_request(rec: dict):
                 ai_flag_json = excluded.ai_flag_json,
                 ai_match_reasoning = excluded.ai_match_reasoning,
                 ai_supply_status = excluded.ai_supply_status,
+                ai_triage_decision = excluded.ai_triage_decision,
+                ai_triage_reason = excluded.ai_triage_reason,
+                ai_triage_confidence = excluded.ai_triage_confidence,
+                ai_triage_flags_json = excluded.ai_triage_flags_json,
                 total_matched = excluded.total_matched,
                 matches_json = excluded.matches_json,
                 payload_json = excluded.payload_json,
@@ -254,6 +294,10 @@ def save_request(rec: dict):
             json.dumps(rec.get("ai_flag")) if rec.get("ai_flag") else None,
             rec.get("ai_match_reasoning"),
             rec.get("ai_supply_status"),
+            rec.get("ai_triage_decision"),
+            rec.get("ai_triage_reason"),
+            rec.get("ai_triage_confidence"),
+            json.dumps(rec.get("ai_triage_flags")) if rec.get("ai_triage_flags") else None,
             int(rec.get("total_matched") or 0),
             json.dumps(rec.get("matches") or []),
             json.dumps(rec.get("payload") or {}),
@@ -295,6 +339,11 @@ def _row_to_request_dict(row: sqlite3.Row) -> dict:
             d["ai_flag"] = json.loads(d["ai_flag_json"])
         except Exception:
             d["ai_flag"] = None
+    if d.get("ai_triage_flags_json"):
+        try:
+            d["ai_triage_flags"] = json.loads(d["ai_triage_flags_json"])
+        except Exception:
+            d["ai_triage_flags"] = []
     return d
 
 
@@ -307,13 +356,15 @@ def save_organization(org_id: str, org_data: dict):
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO organizations (
-                organization_id, name, resources_json, eta_hours, radius_km, phone, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                organization_id, name, resources_json, eta_hours, radius_km, latitude, longitude, phone, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(organization_id) DO UPDATE SET
                 name = excluded.name,
                 resources_json = excluded.resources_json,
                 eta_hours = excluded.eta_hours,
                 radius_km = excluded.radius_km,
+                latitude = excluded.latitude,
+                longitude = excluded.longitude,
                 phone = excluded.phone,
                 updated_at = excluded.updated_at
         """, (
@@ -322,6 +373,8 @@ def save_organization(org_id: str, org_data: dict):
             json.dumps(org_data.get("resources") or {}),
             int(org_data.get("eta_hours") or 4),
             int(org_data.get("radius_km") or 50),
+            org_data.get("latitude"),
+            org_data.get("longitude"),
             org_data.get("phone", ""),
             org_data.get("created_at", now_iso()),
             now_iso()
@@ -340,11 +393,14 @@ def load_all_organizations() -> Dict[str, dict]:
                     res_dict = json.loads(row["resources_json"])
                 except Exception:
                     pass
+            d = dict(row)
             result[row["organization_id"]] = {
                 "name": row["name"],
                 "resources": res_dict,
                 "eta_hours": row["eta_hours"],
                 "radius_km": row["radius_km"],
+                "latitude": d.get("latitude"),
+                "longitude": d.get("longitude"),
                 "phone": row["phone"]
             }
         return result

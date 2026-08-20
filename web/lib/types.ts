@@ -21,6 +21,9 @@ export interface OrgMatch {
   organization_id: string;
   quantity: number;
   eta_hours: number;
+  distance_km?: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface Organization {
@@ -29,6 +32,8 @@ export interface Organization {
   resources: Record<string, number>;
   eta_hours: number;
   radius_km: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface HubRequest {
@@ -71,6 +76,30 @@ export interface HubRequest {
   handed_over_by?: string | null;
   received_at?: string | null;
   received_by?: string | null;
+
+  ai_triage_decision?: "ACCEPT" | "REJECT" | "HOLD" | null;
+  ai_triage_reason?: string | null;
+  ai_triage_confidence?: number | null;
+  ai_triage_flags?: string[] | null;
+}
+
+export interface AiTriageResult {
+  id: string;
+  decision: "ACCEPT" | "REJECT" | "HOLD";
+  accepted: boolean;
+  status: string;
+  confidence: number;
+  reason: string;
+  request: HubRequest;
+}
+
+export interface AiTriageBatchResponse {
+  processed: number;
+  accepted: number;
+  rejected: number;
+  held: number;
+  message: string;
+  results: AiTriageResult[];
 }
 
 // NEW: body for POST /api/v1/requests (Donor Portal)
@@ -86,6 +115,8 @@ export interface CreateRequestBody {
   plan_id?: string | null;
   status_code?: number | null;
   source?: string;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface LiveLocation {
@@ -99,6 +130,9 @@ export interface Allocation {
   organization_id: string;
   quantity: number;
   eta_hours: number;
+  distance_km?: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface Plan {
@@ -114,6 +148,9 @@ export interface Plan {
   priority?: string | null;
   status: string;
   created_at: string;
+  ai_summary?: string | null;
+  ai_risks?: string | null;
+  distance_km?: number | null;
   handed_over_at?: string | null;
   handed_over_by?: string | null;
   received_at?: string | null;

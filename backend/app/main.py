@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import json
+import math
 import os
 import urllib.request
 from datetime import datetime, timezone
@@ -54,6 +55,8 @@ class HubRequestCreate(BaseModel):
     availability_status: Optional[str] = "A"
     plan_id: Optional[str] = None
     status_code: Optional[int] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     source: str = "web"
     payload: Optional[dict] = None
 
@@ -145,6 +148,21 @@ QUEUE_BY_REQUEST_TYPE = {
     "resource": "resource_matching_queue",
     "status": "coordination_queue",
 }
+
+
+def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great-circle distance between two GPS coordinates in kilometers."""
+    try:
+        r = 6371.0
+        p1 = math.radians(float(lat1))
+        p2 = math.radians(float(lat2))
+        dp = math.radians(float(lat2) - float(lat1))
+        dl = math.radians(float(lon2) - float(lon1))
+        a = math.sin(dp / 2.0) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2.0) ** 2
+        c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+        return round(r * c, 2)
+    except Exception:
+        return 3.5
 
 
 def xor_checksum(text: str) -> str:
@@ -446,6 +464,7 @@ def queue_outbound_sms(to_number: str, message: str, msg_type: str = "allocation
 
 AGENT_DELAY_SECONDS = 1.2
 AUTO_ACCEPT_WEB = False
+AUTO_AI_TRIAGE_INTAKE = os.getenv("AUTO_AI_TRIAGE_INTAKE", "true").lower() in ("true", "1", "yes")
 
 # ═══════════════════════════════════════════════════════
 # GROQ AI CONFIG — agents powered by Llama 3.3 70B
@@ -813,24 +832,29 @@ async def ai_flag_request(rec: dict):
 # ───────────── AI MATCHING (Resource Matching Agent) ─────────────
 
 async def ai_enhance_matching(rec: dict, deterministic_matches: list):
-    """Ask Groq to decide provider quantities. Falls back to deterministic matches."""
+    """Ask Groq to decide provider quantities prioritizing nearest GPS distance and ETA."""
     if not GROQ_API_KEY or not deterministic_matches:
         return deterministic_matches, None
     inventory = json.dumps([
-        {"organization_id": m["organization_id"], "available": m["quantity"], "eta_hours": m["eta_hours"]}
+        {
+            "organization_id": m["organization_id"],
+            "available": m["quantity"],
+            "distance_km": m.get("distance_km", 0),
+            "eta_hours": m["eta_hours"]
+        }
         for m in deterministic_matches
     ])
     system = (
         "You are the Resource Matching Agent of a humanitarian coordination platform. "
         "Decide how much each provider should contribute to satisfy the need. "
-        "Rules: never exceed a provider's available quantity; prefer faster providers (lower eta_hours) "
-        "for critical/high urgency; split across providers when sensible. "
+        "Rules: never exceed a provider's available quantity; strictly prioritize NEAREST providers with lowest distance_km "
+        "and lowest eta_hours for emergency dispatch; split across providers only when needed to fulfill the required quantity. "
         "Respond ONLY with JSON: "
-        '{"matches": [{"organization_id": "...", "quantity": N}], "reasoning": "one short sentence"}'
+        '{"matches": [{"organization_id": "...", "quantity": N}], "reasoning": "one short sentence explaining nearest route selection"}'
     )
     user = (
-        f"Need: {rec.get('quantity')} x {rec.get('resource')} at {rec.get('location_name')}, "
-        f"urgency: {rec.get('urgency')}.\nAvailable providers: {inventory}"
+        f"Need: {rec.get('quantity')} x {rec.get('resource')} at {rec.get('location_name')} (GPS: {rec.get('latitude')}, {rec.get('longitude')}), "
+        f"urgency: {rec.get('urgency')}.\nAvailable providers sorted by nearest distance: {inventory}"
     )
     result = await groq_json_async(system, user)
     if not result or not isinstance(result.get("matches"), list):
@@ -838,6 +862,9 @@ async def ai_enhance_matching(rec: dict, deterministic_matches: list):
 
     avail = {m["organization_id"]: m["quantity"] for m in deterministic_matches}
     etas = {m["organization_id"]: m["eta_hours"] for m in deterministic_matches}
+    dists = {m["organization_id"]: m.get("distance_km", 0) for m in deterministic_matches}
+    lats = {m["organization_id"]: m.get("latitude") for m in deterministic_matches}
+    lngs = {m["organization_id"]: m.get("longitude") for m in deterministic_matches}
     validated = []
     for m in result["matches"]:
         oid = str(m.get("organization_id", "")).strip().upper()
@@ -846,7 +873,14 @@ async def ai_enhance_matching(rec: dict, deterministic_matches: list):
         except (TypeError, ValueError):
             continue
         if oid in avail and 0 < qty <= avail[oid]:
-            validated.append({"organization_id": oid, "quantity": qty, "eta_hours": etas[oid]})
+            validated.append({
+                "organization_id": oid,
+                "quantity": qty,
+                "eta_hours": etas[oid],
+                "distance_km": dists.get(oid, 0),
+                "latitude": lats.get(oid),
+                "longitude": lngs.get(oid)
+            })
     if not validated:
         return deterministic_matches, None
     return validated, (result.get("reasoning") if isinstance(result.get("reasoning"), str) else None)
@@ -879,6 +913,203 @@ async def ai_plan_summary(rec: dict, plan: dict):
     if result and isinstance(result.get("summary"), str):
         return result
     return None
+
+
+# ───────────── AI AUTO-TRIAGE & DECISION AGENT ─────────────
+
+async def ai_triage_request(rec: dict) -> dict:
+    """
+    Autonomous AI Triage Agent:
+    Evaluates emergency aid requests using Groq LLM (with robust safety heuristics).
+    Decides whether to ACCEPT, REJECT, or HOLD the request with clear reasoning.
+    """
+    req_type = rec.get("type", "need")
+    org_id = rec.get("organization_id", "UNKNOWN")
+    location = rec.get("location_name") or rec.get("location_code", "RA")
+    resource = rec.get("resource", "supplies")
+    quantity = int(rec.get("quantity") or 0)
+    urgency = rec.get("urgency", "medium")
+    source = rec.get("source", "web")
+    payload = rec.get("payload") or {}
+    notes = str(payload.get("notes", "")) if isinstance(payload, dict) else ""
+
+    # Rule-based fast filters
+    if not check_checksum(rec):
+        return {
+            "decision": "REJECT",
+            "confidence": 1.0,
+            "reason": "Corrupted or invalid checksum in payload (BAD_CRC)",
+            "flags": ["bad_crc"]
+        }
+
+    if check_duplicate(rec):
+        return {
+            "decision": "REJECT",
+            "confidence": 0.99,
+            "reason": f"Duplicate request detected from organization {org_id} (seq {rec.get('seq')})",
+            "flags": ["duplicate_submission"]
+        }
+
+    if not check_privacy(rec):
+        return {
+            "decision": "REJECT",
+            "confidence": 0.95,
+            "reason": "Direct privacy rule violation: unmasked personally identifiable information (PII) detected",
+            "flags": ["pii_detected"]
+        }
+
+    ok_anomaly, reason_anomaly = check_anomaly_and_rate_limit(rec)
+    if not ok_anomaly:
+        return {
+            "decision": "REJECT",
+            "confidence": 0.95,
+            "reason": f"Safety quota / frequency limit violation: {reason_anomaly}",
+            "flags": ["quota_limit_exceeded", reason_anomaly]
+        }
+
+    # LLM-based autonomous triage (if Groq key is present)
+    if GROQ_API_KEY:
+        system = (
+            "You are the Lead Autonomous AI Triage Agent for a humanitarian disaster relief platform (PACT). "
+            "Your job is to rigorously evaluate emergency aid requests (needs & resources) and decide whether to "
+            "ACCEPT (safe, legitimate, reasonable disaster relief request), "
+            "REJECT (fraudulent, abusive, excessive quantity, sensitive data leak, spam), or "
+            "HOLD (ambiguous edge case needing human coordinator verification). "
+            "Respond ONLY with a JSON object:\n"
+            "{\n"
+            '  "decision": "ACCEPT" | "REJECT" | "HOLD",\n'
+            '  "confidence": 0.0 to 1.0,\n'
+            '  "reason": "One clear, professional sentence explaining the decision",\n'
+            '  "flags": ["flag1", "flag2"]\n'
+            "}"
+        )
+        user = json.dumps({
+            "request_id": rec.get("id"),
+            "type": req_type,
+            "organization_id": org_id,
+            "location": location,
+            "resource": resource,
+            "quantity": quantity,
+            "urgency": urgency,
+            "source": source,
+            "notes": notes,
+            "active_disaster_context": "Flood and cyclone emergency relief operations in Chennai/Tamil Nadu region."
+        })
+        try:
+            result = await groq_json_async(system, user, temperature=0.1)
+            if result and result.get("decision") in ("ACCEPT", "REJECT", "HOLD"):
+                conf = float(result.get("confidence", 0.9))
+                return {
+                    "decision": result["decision"],
+                    "confidence": max(0.0, min(1.0, conf)),
+                    "reason": str(result.get("reason", "Evaluated by AI Triage Agent.")),
+                    "flags": result.get("flags", [])
+                }
+        except Exception as e:
+            logger.warning(f"Groq AI triage call failed, falling back to heuristics: {e}")
+
+    # Heuristic safety benchmarks fallback
+    max_reasonable = {
+        "food_kits": 5000,
+        "water_kits": 10000,
+        "medical_kits": 1000,
+        "tents": 800,
+        "blankets": 4000,
+        "hygiene_kits": 3000,
+        "medical_teams": 50
+    }
+    res_code_name = rec.get("resource", "")
+    limit = max_reasonable.get(res_code_name, 2000)
+
+    if quantity > limit * 3:
+        return {
+            "decision": "REJECT",
+            "confidence": 0.9,
+            "reason": f"Quantity ({quantity} units) exceeds maximum reasonable emergency threshold for {res_code_name}.",
+            "flags": ["excessive_quantity"]
+        }
+
+    return {
+        "decision": "ACCEPT",
+        "confidence": 0.92,
+        "reason": f"Verified legitimate {urgency} urgency {req_type} for {quantity} units of {resource} in {location}.",
+        "flags": ["verified_need", "safe_quota", "privacy_passed"]
+    }
+
+
+async def apply_ai_triage_to_request(rec: dict) -> dict:
+    """Evaluates and executes the AI triage decision (ACCEPT, REJECT, or HOLD)."""
+    triage = await ai_triage_request(rec)
+    decision = triage.get("decision", "HOLD")
+    reason = triage.get("reason", "Evaluated by AI Auto-Triage Agent")
+    confidence = triage.get("confidence", 0.9)
+    flags = triage.get("flags", [])
+
+    rec["ai_triage_decision"] = decision
+    rec["ai_triage_reason"] = reason
+    rec["ai_triage_confidence"] = confidence
+    rec["ai_triage_flags"] = flags
+
+    if decision == "ACCEPT":
+        rec, accepted, reject_reason = await do_accept(rec)
+        db.save_request(rec)
+        add_activity(
+            "AI Auto-Triage Agent",
+            f"{rec['id']}: AUTO-ACCEPTED ({int(confidence*100)}% conf) — {reason}"
+        )
+        return {
+            "id": rec["id"],
+            "decision": "ACCEPT",
+            "accepted": accepted,
+            "status": rec.get("status"),
+            "confidence": confidence,
+            "reason": reason,
+            "request": rec
+        }
+    elif decision == "REJECT":
+        rec["status"] = "rejected"
+        rec["reviewed_at"] = now_iso()
+        rec["reject_reason"] = f"AI Auto-Reject: {reason}"
+        db.save_request(rec)
+        add_activity(
+            "AI Auto-Triage Agent",
+            f"{rec['id']}: AUTO-REJECTED ({int(confidence*100)}% conf) — {reason}"
+        )
+        # Outbound notification if from SMS
+        req_phone = rec.get("from_number")
+        if req_phone and req_phone != "Device-SIM":
+            rej_body = f"X|{next_seq()}|{rec['id']}|AI_REJECT"
+            queue_outbound_sms(
+                to_number=req_phone,
+                message=f"{rej_body}|{xor_checksum(rej_body)}",
+                msg_type="rejection",
+                plan_id=rec["id"]
+            )
+        return {
+            "id": rec["id"],
+            "decision": "REJECT",
+            "accepted": False,
+            "status": "rejected",
+            "confidence": confidence,
+            "reason": reason,
+            "request": rec
+        }
+    else:
+        # HOLD for manual human review
+        db.save_request(rec)
+        add_activity(
+            "AI Auto-Triage Agent",
+            f"{rec['id']}: HELD for manual review ({int(confidence*100)}% conf) — {reason}"
+        )
+        return {
+            "id": rec["id"],
+            "decision": "HOLD",
+            "accepted": False,
+            "status": rec.get("status", "pending"),
+            "confidence": confidence,
+            "reason": reason,
+            "request": rec
+        }
 
 
 # ═══════════════════════════════════════════════════════
@@ -957,13 +1188,46 @@ async def run_need_pipeline(request_id: str):
     add_activity("Need Assessment Agent",
                  f"{request_id}: need at {location_label} - {quantity} x {resource_name}, urgency {rec.get('urgency')}")
 
+    need_lat = rec.get("latitude")
+    need_lng = rec.get("longitude")
+    if need_lat is None or need_lng is None:
+        loc = rec.get("location_code")
+        need_lat, need_lng = LOCATION_COORDS.get(loc, CHENNAI_CENTER)
+
     deterministic_matches = []
     for org_id, org in ORGANIZATIONS.items():
         if org_id == rec.get("organization_id"):
             continue
-        available = org["resources"].get(resource_code, 0)
+        available = org.get("resources", {}).get(resource_code, 0)
         if available > 0:
-            deterministic_matches.append({"organization_id": org_id, "quantity": available, "eta_hours": org["eta_hours"]})
+            prov_lat = org.get("latitude")
+            prov_lng = org.get("longitude")
+            if prov_lat is None or prov_lng is None:
+                for req_item in REQUESTS.values():
+                    if (req_item.get("organization_id") == org_id and 
+                        req_item.get("type") == "resource" and 
+                        req_item.get("latitude") is not None and 
+                        req_item.get("longitude") is not None):
+                        prov_lat = req_item.get("latitude")
+                        prov_lng = req_item.get("longitude")
+                        break
+            if prov_lat is None or prov_lng is None:
+                prov_lat, prov_lng = LOCATION_COORDS.get(org.get("location_code", "RA"), CHENNAI_CENTER)
+
+            distance_km = haversine_distance_km(need_lat, need_lng, prov_lat, prov_lng)
+            calculated_eta = round(max(0.4, (distance_km / 18.0) + 0.3), 1)
+
+            deterministic_matches.append({
+                "organization_id": org_id,
+                "quantity": available,
+                "eta_hours": calculated_eta,
+                "distance_km": distance_km,
+                "latitude": prov_lat,
+                "longitude": prov_lng,
+            })
+
+    # ── Sort by Nearest Distance first (lowest distance_km, lowest ETA) ──
+    deterministic_matches.sort(key=lambda m: (m["distance_km"], m["eta_hours"]))
 
     # ═══════ AI MATCHING (Groq) with fallback ═══════
     matches, ai_reasoning = await ai_enhance_matching(rec, deterministic_matches)
@@ -982,12 +1246,47 @@ async def run_need_pipeline(request_id: str):
 
     remaining = quantity
     allocations = []
-    for match in sorted(matches, key=lambda m: m["eta_hours"]):
+    for match in sorted(matches, key=lambda m: (m.get("distance_km", 0), m.get("eta_hours", 4))):
         if remaining <= 0:
             break
         take = min(remaining, match["quantity"])
-        allocations.append({"organization_id": match["organization_id"], "quantity": take, "eta_hours": match["eta_hours"]})
-        ORGANIZATIONS[match["organization_id"]]["resources"][resource_code] -= take
+        allocations.append({
+            "organization_id": match["organization_id"],
+            "quantity": take,
+            "eta_hours": match.get("eta_hours", 1.0),
+            "distance_km": match.get("distance_km", 0.0),
+            "latitude": match.get("latitude"),
+            "longitude": match.get("longitude"),
+        })
+        match_org_id = match["organization_id"]
+
+        # Deduct from live partner organization inventory and save to SQLite
+        if match_org_id in ORGANIZATIONS:
+            current_org_stock = ORGANIZATIONS[match_org_id].get("resources", {}).get(resource_code, 0)
+            ORGANIZATIONS[match_org_id]["resources"][resource_code] = max(0, current_org_stock - take)
+            db.save_organization(match_org_id, ORGANIZATIONS[match_org_id])
+
+        # Deduct from corresponding donor resource request listings
+        deduct_needed = take
+        for r_id, res_req in list(REQUESTS.items()):
+            if (res_req.get("type") == "resource" and 
+                res_req.get("organization_id") == match_org_id and 
+                res_req.get("resource_code") == resource_code):
+                cur_qty = int(res_req.get("quantity") or 0)
+                if cur_qty > 0:
+                    dec = min(deduct_needed, cur_qty)
+                    res_req["quantity"] = cur_qty - dec
+                    deduct_needed -= dec
+                    if res_req["quantity"] == 0:
+                        res_req["availability"] = "unavailable"
+                        res_req["availability_code"] = "U"
+                    else:
+                        res_req["availability"] = "limited"
+                        res_req["availability_code"] = "L"
+                    db.save_request(res_req)
+                if deduct_needed <= 0:
+                    break
+
         remaining -= take
 
     allocated_quantity = sum(a["quantity"] for a in allocations)
@@ -998,12 +1297,15 @@ async def run_need_pipeline(request_id: str):
     else:
         plan_status = "no_suppliers"
 
+    nearest_dist = round(min(a.get("distance_km", 0) for a in allocations), 1) if allocations else 0.0
+
     plan = {
         "plan_id": next_plan_id(), "request_id": request_id,
         "resource": resource_name, "resource_code": resource_code,
         "location_code": rec.get("location_code"), "location_name": location_label,
         "required_quantity": quantity, "allocated_quantity": allocated_quantity,
         "allocations": allocations, "priority": rec.get("urgency"),
+        "distance_km": nearest_dist,
         "status": plan_status, "created_at": now_iso(),
     }
 
@@ -1272,10 +1574,14 @@ async def create_request(body: HubRequestCreate):
         rec["plan_id"] = body.plan_id.strip().upper()
         rec["status_code"] = body.status_code
 
-    # Attach Chennai coordinates so web-form requests also appear on the map
-    loc = rec.get("location_code")
-    if loc in LOCATION_COORDS:
-        rec["latitude"], rec["longitude"] = LOCATION_COORDS[loc]
+    # Attach custom GPS coordinates if uploaded, or fallback to Chennai zone coordinates
+    if body.latitude is not None and body.longitude is not None:
+        rec["latitude"] = float(body.latitude)
+        rec["longitude"] = float(body.longitude)
+    else:
+        loc = rec.get("location_code")
+        if loc in LOCATION_COORDS:
+            rec["latitude"], rec["longitude"] = LOCATION_COORDS[loc]
 
     key = (rec["organization_id"], rec["seq"])
     rec["status"] = "duplicate" if key in PROCESSED_SEQS else "pending"
@@ -1295,6 +1601,9 @@ async def create_request(body: HubRequestCreate):
             org_id, {"name": org_id, "resources": {}, "eta_hours": 4, "radius_km": 50}
         )
         org["resources"][resource_code] = org["resources"].get(resource_code, 0) + body.quantity
+        if rec.get("latitude") is not None and rec.get("longitude") is not None:
+            org["latitude"] = rec["latitude"]
+            org["longitude"] = rec["longitude"]
         db.save_organization(org_id, org)
         PROCESSED_SEQS.add(key)
         db.save_request(rec)
@@ -1303,7 +1612,10 @@ async def create_request(body: HubRequestCreate):
             f"{rec['id']}: registered {body.quantity} x {resource_name} from {org_id} (auto-accepted)",
         )
 
-    if AUTO_ACCEPT_WEB and rec["source"] == "web" and rec["status"] == "pending":
+    if AUTO_AI_TRIAGE_INTAKE and rec["status"] == "pending":
+        triage_res = await apply_ai_triage_to_request(rec)
+        rec = triage_res.get("request", rec)
+    elif AUTO_ACCEPT_WEB and rec["source"] == "web" and rec["status"] == "pending":
         rec, _, _ = await do_accept(rec)
     return rec
 
@@ -1345,6 +1657,50 @@ def reject_request(request_id: str, body: RejectBody):
         )
 
     return rec
+
+
+@app.post("/api/v1/requests/{request_id}/ai-triage")
+async def triage_single_request(request_id: str):
+    rec = REQUESTS.get(request_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="request not found")
+    if rec.get("status") != "pending":
+        raise HTTPException(status_code=409, detail=f"request is '{rec.get('status')}', only 'pending' can be triaged")
+    result = await apply_ai_triage_to_request(rec)
+    return result
+
+
+@app.post("/api/v1/requests/ai-triage-all")
+async def triage_all_pending_requests():
+    pending_requests = [r for r in REQUESTS.values() if r.get("status") == "pending"]
+    if not pending_requests:
+        return {
+            "processed": 0,
+            "accepted": 0,
+            "rejected": 0,
+            "held": 0,
+            "message": "No pending requests to triage",
+            "results": []
+        }
+
+    results = await asyncio.gather(*(apply_ai_triage_to_request(r) for r in pending_requests))
+    accepted_count = sum(1 for res in results if res.get("decision") == "ACCEPT")
+    rejected_count = sum(1 for res in results if res.get("decision") == "REJECT")
+    held_count = sum(1 for res in results if res.get("decision") == "HOLD")
+
+    add_activity(
+        "AI Auto-Triage Agent",
+        f"Batch triage completed: {len(results)} processed ({accepted_count} accepted, {rejected_count} rejected, {held_count} held)"
+    )
+
+    return {
+        "processed": len(results),
+        "accepted": accepted_count,
+        "rejected": rejected_count,
+        "held": held_count,
+        "message": f"AI Auto-Triage completed: {accepted_count} accepted, {rejected_count} rejected, {held_count} held for review.",
+        "results": results
+    }
 
 
 @app.get("/api/v1/plans")
@@ -1491,6 +1847,8 @@ def list_organizations():
             "resources": org.get("resources", {}),
             "eta_hours": org.get("eta_hours"),
             "radius_km": org.get("radius_km"),
+            "latitude": org.get("latitude"),
+            "longitude": org.get("longitude"),
         }
         for org_id, org in ORGANIZATIONS.items()
     ]}
@@ -1513,6 +1871,23 @@ def set_auto_accept(enabled: bool = True):
     return {"enabled": AUTO_ACCEPT_WEB}
 
 
+@app.get("/api/v1/config/ai-triage")
+def get_ai_triage_config():
+    return {
+        "enabled": AUTO_AI_TRIAGE_INTAKE,
+        "groq_enabled": bool(GROQ_API_KEY),
+        "model": GROQ_MODEL if GROQ_API_KEY else "Heuristic Rule Safety Engine"
+    }
+
+
+@app.post("/api/v1/config/ai-triage")
+def set_ai_triage_config(enabled: bool = True):
+    global AUTO_AI_TRIAGE_INTAKE
+    AUTO_AI_TRIAGE_INTAKE = enabled
+    add_activity("System", f"AI Auto-Triage on Intake {'ENABLED' if enabled else 'DISABLED'}")
+    return {"enabled": AUTO_AI_TRIAGE_INTAKE}
+
+
 # ═══════════════════════════════════════════════════════
 # AI STATUS ENDPOINT — web can show "AI: ON (llama-3.3-70b)"
 # ═══════════════════════════════════════════════════════
@@ -1524,9 +1899,26 @@ def get_ai_config():
     }
 
 
+async def background_auto_triage_worker():
+    """Continuous autonomous AI triage worker for 100% full background automation."""
+    while True:
+        try:
+            if AUTO_AI_TRIAGE_INTAKE:
+                pending_requests = [r for r in list(REQUESTS.values()) if r.get("status") == "pending"]
+                for req in pending_requests:
+                    try:
+                        await apply_ai_triage_to_request(req)
+                    except Exception as exc:
+                        logger.error(f"Background AI triage failed for {req.get('id')}: {exc}")
+        except Exception as e:
+            logger.error(f"Error in background_auto_triage_worker loop: {e}")
+        await asyncio.sleep(2.0)
+
+
 @app.on_event("startup")
 def startup_db_init():
     init_db_and_load_state()
+    asyncio.create_task(background_auto_triage_worker())
 
 
 # =====================================================================

@@ -59,6 +59,12 @@ export default function DonorPage() {
   const [resLocation, setResLocation] = useState("RA");
   const [resAvailability, setResAvailability] = useState("A");
 
+  // Donor GPS upload & coordinates
+  const [donorLat, setDonorLat] = useState<string>("13.0499");
+  const [donorLng, setDonorLng] = useState<string>("80.2824");
+  const [isDetectingGps, setIsDetectingGps] = useState(false);
+  const [gpsStatus, setGpsStatus] = useState<string | null>("Preset: Marina Base (13.0499° N, 80.2824° E)");
+
   // File Need form
   const [needResource, setNeedResource] = useState("F");
   const [needQuantity, setNeedQuantity] = useState("300");
@@ -70,6 +76,48 @@ export default function DonorPage() {
   const [submissions, setSubmissions] = useState<HubRequest[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+
+  const LOCATION_PRESETS: Record<string, { lat: number; lng: number; name: string }> = {
+    RA: { lat: 13.0499, lng: 80.2824, name: "Marina Beach (Region A)" },
+    RB: { lat: 13.0418, lng: 80.2341, name: "T. Nagar (Region B)" },
+    RC: { lat: 13.0850, lng: 80.2101, name: "Anna Nagar (Region C)" },
+    D1: { lat: 13.1150, lng: 80.3010, name: "Kasimedu Port (District North)" },
+    D2: { lat: 13.0067, lng: 80.2572, name: "Adyar Depot (District South)" },
+  };
+
+  const handleLocationPresetChange = (locCode: string) => {
+    setResLocation(locCode);
+    const preset = LOCATION_PRESETS[locCode];
+    if (preset) {
+      setDonorLat(preset.lat.toFixed(4));
+      setDonorLng(preset.lng.toFixed(4));
+      setGpsStatus(`Preset: ${preset.name} (${preset.lat.toFixed(4)}° N, ${preset.lng.toFixed(4)}° E)`);
+    }
+  };
+
+  const detectDeviceGps = () => {
+    if (typeof window === "undefined" || !navigator.geolocation) {
+      setGpsStatus("Browser geolocation not available on this device");
+      return;
+    }
+    setIsDetectingGps(true);
+    setGpsStatus("Acquiring high-accuracy GPS fix from device satellites...");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setDonorLat(lat.toFixed(6));
+        setDonorLng(lng.toFixed(6));
+        setIsDetectingGps(false);
+        setGpsStatus(`Live GPS locked: ${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E (accuracy ±${Math.round(pos.coords.accuracy)}m)`);
+      },
+      (err) => {
+        setIsDetectingGps(false);
+        setGpsStatus(`GPS lock failed: ${err.message}. Using manual coordinates.`);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   // Load session on mount
   useEffect(() => {
@@ -184,6 +232,9 @@ export default function DonorPage() {
       const qty = parseInt(resQuantity, 10);
       if (!qty || qty <= 0) throw new Error("Quantity must be a positive number");
 
+      const latNum = parseFloat(donorLat);
+      const lngNum = parseFloat(donorLng);
+
       const created = await createRequest({
         type: "resource",
         organization_id: org,
@@ -191,11 +242,13 @@ export default function DonorPage() {
         resource: resResource,
         quantity: qty,
         availability_status: resAvailability,
+        latitude: !isNaN(latNum) ? latNum : undefined,
+        longitude: !isNaN(lngNum) ? lngNum : undefined,
         source: "web",
       });
       setResult({
         kind: "success",
-        text: `Resource registered as ${created.id} — now visible to the Resource Matching Agent.`,
+        text: `Resource registered as ${created.id} with GPS coordinates (${donorLat}, ${donorLng}) — now prioritized for nearest routing.`,
       });
     } catch (e) {
       setResult({ kind: "error", text: e instanceof Error ? e.message : "Failed to register resource" });
@@ -324,8 +377,12 @@ export default function DonorPage() {
                 />
               </div>
               <div>
-                <label className={labelClass}>Location</label>
-                <select value={resLocation} onChange={(e) => setResLocation(e.target.value)} className={inputClass}>
+                <label className={labelClass}>Relief Zone Preset</label>
+                <select
+                  value={resLocation}
+                  onChange={(e) => handleLocationPresetChange(e.target.value)}
+                  className={inputClass}
+                >
                   {LOCATIONS.map((l) => (
                     <option key={l.code} value={l.code}>
                       {l.label}
@@ -349,12 +406,66 @@ export default function DonorPage() {
               </div>
             </div>
 
+            {/* ── Donor GPS Upload & Coordinates Section ── */}
+            <div className="mt-4 rounded-xl border border-[#FFE5BF] bg-[#FFFAF3] p-3.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#7c4a12]">
+                    Donor GPS Location (Nearest Way Routing)
+                  </span>
+                  <p className="text-[11px] text-[#7c6a58]">
+                    Upload your warehouse GPS so the matching agent calculates the nearest road distance.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={detectDeviceGps}
+                  disabled={isDetectingGps}
+                  className="rounded-lg border border-[#e3c9a8] bg-[#FFF2DB] px-2.5 py-1.5 text-xs font-bold text-[#7c4a12] transition hover:bg-[#FFE5BF] disabled:opacity-50"
+                  title="Detect current device GPS using browser geolocation"
+                >
+                  {isDetectingGps ? "Detecting GPS..." : "Auto-Detect My GPS"}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-[#7c4a12]">Latitude</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={donorLat}
+                    onChange={(e) => setDonorLat(e.target.value)}
+                    placeholder="13.0827"
+                    className="mt-0.5 w-full rounded-lg border border-[#e3c9a8] bg-white px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#F62440]"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[#7c4a12]">Longitude</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={donorLng}
+                    onChange={(e) => setDonorLng(e.target.value)}
+                    placeholder="80.2707"
+                    className="mt-0.5 w-full rounded-lg border border-[#e3c9a8] bg-white px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#F62440]"
+                  />
+                </div>
+              </div>
+
+              {gpsStatus && (
+                <div className="rounded bg-[#FFF2DB] px-2.5 py-1 text-[11px] text-[#7c4a12] font-mono">
+                  {gpsStatus}
+                </div>
+              )}
+            </div>
+
             <button
               onClick={submitResource}
               disabled={sending}
               className="mt-5 w-full rounded-lg bg-[#4CAF50] px-4 py-3 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-50"
             >
-              {sending ? "Registering…" : "Register Resource"}
+              {sending ? "Registering…" : "Register Resource with GPS"}
             </button>
           </div>
 
@@ -467,6 +578,11 @@ export default function DonorPage() {
                       <p className="mt-1 text-xs text-[#7c6a58]">
                         Destination: <strong className="text-[#2b1a0e]">{p.location_name ?? p.location_code}</strong> · Quantity:{" "}
                         <strong className="text-[#2b1a0e] font-mono">{myTotalQty} units</strong>
+                        {p.distance_km !== undefined && p.distance_km !== null && p.distance_km > 0 && (
+                          <span className="ml-2 rounded bg-red-50 border border-red-200 px-1.5 py-0.5 font-bold text-[#F62440]">
+                            Nearest Route: {p.distance_km} km away
+                          </span>
+                        )}
                       </p>
                     </div>
 

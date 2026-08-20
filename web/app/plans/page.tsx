@@ -184,12 +184,19 @@ export default function PlansPage() {
                           {plan.allocations.map((alloc, i) => (
                             <div
                               key={i}
-                              className="flex items-center justify-between rounded-lg bg-[#FFFAF3] px-3 py-2 text-sm"
+                              className="flex items-center justify-between rounded-lg border border-[#FFE5BF] bg-[#FFFAF3] px-3 py-2 text-sm"
                             >
-                              <span className="font-medium">{alloc.organization_id}</span>
-                              <div className="flex gap-4">
-                                <span className="font-mono">{alloc.quantity} units</span>
-                                <span className="text-[#a1866f]">ETA: {alloc.eta_hours}h</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-[#2b1a0e]">{alloc.organization_id}</span>
+                                {alloc.distance_km !== undefined && alloc.distance_km > 0 && (
+                                  <span className="rounded bg-red-50 border border-red-200 px-1.5 py-0.5 text-[10px] font-bold text-[#F62440]">
+                                    {alloc.distance_km} km away · Nearest Route
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="font-mono font-bold text-[#2b1a0e]">{alloc.quantity} units</span>
+                                <span className="text-[#7c6a58] text-xs font-medium">ETA: {alloc.eta_hours}h</span>
                               </div>
                             </div>
                           ))}

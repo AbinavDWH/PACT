@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Tooltip } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, Polyline } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { listLocations, listOrganizations } from "../lib/api";
@@ -31,6 +31,16 @@ function dotIcon(urgency?: string | null) {
     className: "",
     iconSize: [18, 18],
     iconAnchor: [9, 9],
+    popupAnchor: [0, -10],
+  });
+}
+
+function donorIcon() {
+  return L.divIcon({
+    html: `<div style="background:#4CAF50;width:20px;height:20px;border-radius:4px;border:2px solid #fff;box-shadow:0 0 8px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:bold;">D</div>`,
+    className: "",
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
     popupAnchor: [0, -10],
   });
 }
@@ -113,10 +123,18 @@ export default function ChennaiMap({ requests = [] }: Props) {
           <span className="inline-block h-3 w-3 rounded-full" style={{ background: "#2196F3" }} />
           <span className="font-semibold text-[#4a3a28]">Field worker (live GPS)</span>
         </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded bg-[#4CAF50] text-[8px] font-bold text-white">D</span>
+          <span className="font-semibold text-[#4a3a28]">Donor / Supply Pool</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-0.5 w-4 bg-[#F62440] border-t border-dashed border-[#F62440]" />
+          <span className="font-semibold text-[#F62440]">Nearest Dispatch Route</span>
+        </span>
         {Object.entries(URGENCY_COLORS).map(([label, color]) => (
           <span key={label} className="flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded-full" style={{ background: color }} />
-            <span className="font-semibold capitalize text-[#4a3a28]">{label}</span>
+            <span className="font-semibold capitalize text-[#4a3a28]">{label} Need</span>
           </span>
         ))}
       </div>
@@ -161,36 +179,82 @@ export default function ChennaiMap({ requests = [] }: Props) {
             </Marker>
           ))}
 
-          {/* LAYER 2: Request markers — popup shows each request's own sender */}
+          {/* LAYER 2: Nearest Route Polylines between Needs & Matched Donors */}
+          {requestMarkers
+            .filter((r) => r.type === "need" && r.matches && r.matches.length > 0)
+            .map((r) =>
+              (r.matches || []).map((m, idx) => {
+                if (
+                  typeof m.latitude === "number" &&
+                  typeof m.longitude === "number" &&
+                  (m.latitude !== 0 || m.longitude !== 0)
+                ) {
+                  return (
+                    <Polyline
+                      key={`route-${r.id}-${m.organization_id}-${idx}`}
+                      positions={[
+                        [m.latitude, m.longitude],
+                        [r.latitude as number, r.longitude as number],
+                      ]}
+                      pathOptions={{
+                        color: "#F62440",
+                        weight: 3,
+                        dashArray: "6, 8",
+                        opacity: 0.85,
+                      }}
+                    >
+                      <Tooltip sticky>
+                        Nearest Route: {m.organization_id} → {r.location_name || r.id} ({m.distance_km ?? "?"} km away)
+                      </Tooltip>
+                    </Polyline>
+                  );
+                }
+                return null;
+              })
+            )}
+
+          {/* LAYER 3: Request & Donor markers */}
           {requestMarkers.map((r) => (
             <Marker
               key={`req-${r.id}-${r.latitude}-${r.longitude}`}
               position={[r.latitude as number, r.longitude as number]}
-              icon={dotIcon(r.urgency)}
+              icon={r.type === "resource" ? donorIcon() : dotIcon(r.urgency)}
             >
               <Popup>
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                   <strong>{r.id}</strong>{" "}
                   <span style={{ color: "#a1866f" }}>({r.source})</span>
                   <br />
+                  Type:{" "}
+                  <span className="font-bold uppercase text-[#7c4a12]">
+                    {r.type === "resource" ? "Donor Resource" : "Emergency Need"}
+                  </span>
+                  <br />
                   Sender:{" "}
                   <span style={{ color: orgColor(r.organization_id), fontWeight: 700 }}>
                     {orgName(r.organization_id)} ({r.organization_id})
                   </span>
                   <br />
+                  GPS: {Number(r.latitude).toFixed(4)}, {Number(r.longitude).toFixed(4)}
+                  <br />
                   Loc: {r.location_name ?? r.location_code}
                   <br />
                   {r.resource} × {r.quantity}
                   <br />
-                  <span
-                    style={{
-                      color: URGENCY_COLORS[(r.urgency ?? "").toLowerCase()],
-                      fontWeight: 700,
-                    }}
-                  >
-                    {r.urgency} urgency
-                  </span>{" "}
-                  · Status: {r.status}
+                  {r.type === "need" && (
+                    <>
+                      <span
+                        style={{
+                          color: URGENCY_COLORS[(r.urgency ?? "").toLowerCase()],
+                          fontWeight: 700,
+                        }}
+                      >
+                        {r.urgency} urgency
+                      </span>{" "}
+                      ·{" "}
+                    </>
+                  )}
+                  Status: {r.status}
                   <br />
                   {r.plan_id && <span>Plan: {r.plan_id}</span>}
                 </div>

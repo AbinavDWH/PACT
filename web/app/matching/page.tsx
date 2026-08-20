@@ -160,12 +160,24 @@ export default function MatchingPage() {
                           {matches.map((m, i) => (
                             <div
                               key={i}
-                              className="flex items-center justify-between rounded-lg bg-[#FFFAF3] px-3 py-2 text-sm"
+                              className="flex items-center justify-between rounded-lg border border-[#FFE5BF] bg-[#FFFAF3] px-3 py-2 text-sm"
                             >
-                              <span className="font-medium">{m.organization_id}</span>
-                              <div className="flex gap-4">
-                                <span className="font-mono">{m.quantity} units available</span>
-                                <span className="text-[#a1866f]">ETA: {m.eta_hours}h</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-[#2b1a0e]">{m.organization_id}</span>
+                                {i === 0 && (
+                                  <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-800">
+                                    NEAREST WAY
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="font-mono font-bold text-[#2b1a0e]">{m.quantity} units</span>
+                                {m.distance_km !== undefined && (
+                                  <span className="font-semibold text-[#F62440] text-xs">
+                                    {m.distance_km} km away
+                                  </span>
+                                )}
+                                <span className="text-[#7c6a58] text-xs font-medium">ETA: {m.eta_hours}h</span>
                               </div>
                             </div>
                           ))}

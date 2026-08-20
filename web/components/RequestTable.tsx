@@ -8,6 +8,7 @@ interface Props {
   busyId: string | null;
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
+  onAiTriage?: (id: string) => void;
   onConfirmHandover?: (id: string, planId?: string) => void;
   onConfirmReceipt?: (id: string, planId?: string) => void;
 }
@@ -81,6 +82,7 @@ export default function RequestTable({
   busyId,
   onAccept,
   onReject,
+  onAiTriage,
   onConfirmHandover,
   onConfirmReceipt,
 }: Props) {
@@ -125,6 +127,19 @@ export default function RequestTable({
                       {r.sms_canonical}
                     </div>
                   )}
+                  {r.ai_triage_decision && (
+                    <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold" title={r.ai_triage_reason || ""}>
+                      <span className={`rounded px-1.5 py-0.5 border ${
+                        r.ai_triage_decision === "ACCEPT"
+                          ? "border-green-300 bg-green-50 text-green-800"
+                          : r.ai_triage_decision === "REJECT"
+                          ? "border-red-300 bg-red-50 text-red-700"
+                          : "border-[#e3c9a8] bg-[#FFF2DB] text-[#7c4a12]"
+                      }`}>
+                        AI: {r.ai_triage_decision}
+                      </span>
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 capitalize">{r.type}</td>
                 <td className="px-4 py-3 font-medium">{r.organization_id}</td>
@@ -145,21 +160,31 @@ export default function RequestTable({
                 <td className="px-4 py-3">{allocationCell(r)}</td>
                 <td className="px-4 py-3">
                   {r.status === "pending" ? (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-1.5 items-center">
                       <button
                         onClick={() => onAccept(r.id)}
                         disabled={busyId === r.id}
-                        className="rounded-lg bg-[#F62440] px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                        className="rounded-lg bg-[#F62440] px-2.5 py-1 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
                       >
                         {busyId === r.id ? "…" : "Accept"}
                       </button>
                       <button
                         onClick={() => onReject(r.id)}
                         disabled={busyId === r.id}
-                        className="rounded-lg border border-[#e3c9a8] px-3 py-1.5 text-xs font-semibold text-[#7c4a12] transition hover:bg-[#FFF2DB] disabled:opacity-50"
+                        className="rounded-lg border border-[#e3c9a8] px-2 py-1 text-xs font-semibold text-[#7c4a12] transition hover:bg-[#FFF2DB] disabled:opacity-50"
                       >
                         Reject
                       </button>
+                      {onAiTriage && (
+                        <button
+                          onClick={() => onAiTriage(r.id)}
+                          disabled={busyId === r.id}
+                          className="rounded-lg border border-[#e3c9a8] bg-[#FFF2DB] px-2 py-1 text-xs font-bold text-[#7c4a12] transition hover:bg-[#FFE5BF] disabled:opacity-50"
+                          title="Evaluate with AI Auto-Triage Agent"
+                        >
+                          AI Triage
+                        </button>
+                      )}
                     </div>
                   ) : isDelivered ? (
                     <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-800">

@@ -3,7 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { ActivityEntry, HubRequest } from "../../lib/types";
-import { acceptRequest, confirmHandover, confirmReceipt, listActivity, listRequests, rejectRequest } from "../../lib/api";
+import {
+  acceptRequest,
+  aiTriageAllRequests,
+  aiTriageRequest,
+  confirmHandover,
+  confirmReceipt,
+  getAiTriageConfig,
+  listActivity,
+  listRequests,
+  rejectRequest,
+  setAiTriageConfig,
+} from "../../lib/api";
 import RequestTable from "../../components/RequestTable";
 
 // FIX: load Leaflet map only in the browser (no SSR)
@@ -35,12 +46,22 @@ export default function RequestsPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [isTriagingAll, setIsTriagingAll] = useState(false);
+  const [triageFeedback, setTriageFeedback] = useState<string | null>(null);
+  const [autoTriageEnabled, setAutoTriageEnabled] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
-      const [reqRes, actRes] = await Promise.all([listRequests(), listActivity(12)]);
+      const [reqRes, actRes, cfgRes] = await Promise.all([
+        listRequests(),
+        listActivity(12),
+        getAiTriageConfig().catch(() => ({ enabled: true })),
+      ]);
       setRequests(reqRes.requests);
       setActivity(actRes.activity);
+      if (typeof cfgRes?.enabled === "boolean") {
+        setAutoTriageEnabled(cfgRes.enabled);
+      }
       setError(null);
       setLastUpdated(new Date());
     } catch (e) {
@@ -95,6 +116,45 @@ export default function RequestsPage() {
     }
   }, [refresh]);
 
+  const onAiTriage = useCallback(async (id: string) => {
+    setBusyId(id);
+    try {
+      const result = await aiTriageRequest(id);
+      setTriageFeedback(
+        `AI Triage for ${id}: ${result.decision} (Confidence: ${Math.round(result.confidence * 100)}%) — ${result.reason}`
+      );
+      await refresh();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "AI Triage failed");
+    } finally {
+      setBusyId(null);
+    }
+  }, [refresh]);
+
+  const onAiTriageAll = useCallback(async () => {
+    setIsTriagingAll(true);
+    try {
+      const result = await aiTriageAllRequests();
+      setTriageFeedback(result.message);
+      await refresh();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "AI Batch Triage failed");
+    } finally {
+      setIsTriagingAll(false);
+    }
+  }, [refresh]);
+
+  const onToggleAutoTriage = useCallback(async () => {
+    const nextVal = !autoTriageEnabled;
+    try {
+      await setAiTriageConfig(nextVal);
+      setAutoTriageEnabled(nextVal);
+      setTriageFeedback(`Autonomous AI Triage on intake is now ${nextVal ? "ENABLED" : "DISABLED"}.`);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Failed to update configuration");
+    }
+  }, [autoTriageEnabled]);
+
   const onConfirmHandover = useCallback(async (id: string, planId?: string) => {
     setBusyId(id);
     try {
@@ -127,14 +187,55 @@ export default function RequestsPage() {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#F62440]">PACT Command Center</p>
             <h1 className="mt-1 text-3xl font-bold">Request Hub & Live Map</h1>
             <p className="mt-1 max-w-2xl text-sm text-[#7c6a58]">
-              Every request — web, SMS, or Android field app — flows through the same privacy-checked pipeline and maps to Chennai in real-time.
+              Every request — web, SMS, or Android field app — flows through the autonomous AI-checked pipeline and maps to Chennai in real-time.
             </p>
           </div>
-          <div className="flex items-center gap-3 text-xs text-[#7c6a58]">
-            <span className={`h-2 w-2 rounded-full ${error ? "bg-red-500" : "animate-pulse bg-green-500"}`} />
-            {error ? "Backend unreachable" : lastUpdated ? `Live · updated ${lastUpdated.toLocaleTimeString()}` : "Connecting…"}
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            {/* Auto-triage toggle */}
+            <button
+              onClick={onToggleAutoTriage}
+              className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 font-semibold transition ${
+                autoTriageEnabled
+                  ? "border-[#4CAF50]/40 bg-[#E8F5E9] text-[#1B5E20]"
+                  : "border-[#e3c9a8] bg-[#FFF2DB] text-[#7c4a12] hover:bg-[#FFE5BF]"
+              }`}
+              title="Automatically triage all newly incoming requests using AI"
+            >
+              <span className={`h-2.5 w-2.5 rounded-full ${autoTriageEnabled ? "bg-[#4CAF50] animate-pulse" : "bg-[#a1866f]"}`} />
+              AI Full Automation: {autoTriageEnabled ? "ACTIVE" : "PAUSED"}
+            </button>
+
+            {/* AI Triage All button */}
+            <button
+              onClick={onAiTriageAll}
+              disabled={isTriagingAll || counts.pending === 0}
+              className="flex items-center gap-1.5 rounded-xl bg-[#2b1a0e] px-4 py-2 text-xs font-bold text-[#FFFAF3] shadow-sm transition hover:bg-[#4a3a28] disabled:opacity-40"
+              title="Evaluate and process all pending requests using the AI Auto-Triage Agent"
+            >
+              {isTriagingAll ? "Triaging Pending Requests..." : `AI Auto-Triage All (${counts.pending} Pending)`}
+            </button>
+
+            <div className="flex items-center gap-2 text-[#7c6a58]">
+              <span className={`h-2 w-2 rounded-full ${error ? "bg-red-500" : "animate-pulse bg-green-500"}`} />
+              {error ? "Backend unreachable" : lastUpdated ? `Live · ${lastUpdated.toLocaleTimeString()}` : "Connecting…"}
+            </div>
           </div>
         </header>
+
+        {triageFeedback && (
+          <div className="flex items-center justify-between rounded-xl border border-[#FFE5BF] bg-[#FFF2DB] px-4 py-3 text-sm text-[#7c4a12] shadow-sm animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-[#2b1a0e]">[AI Coordination Engine]</span>
+              <span>{triageFeedback}</span>
+            </div>
+            <button
+              onClick={() => setTriageFeedback(null)}
+              className="text-xs font-bold text-[#7c4a12] hover:text-[#2b1a0e]"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -163,6 +264,7 @@ export default function RequestsPage() {
               busyId={busyId}
               onAccept={onAccept}
               onReject={onReject}
+              onAiTriage={onAiTriage}
               onConfirmHandover={onConfirmHandover}
               onConfirmReceipt={onConfirmReceipt}
             />
