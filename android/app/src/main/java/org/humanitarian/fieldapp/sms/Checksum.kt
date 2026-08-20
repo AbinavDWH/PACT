@@ -9,3 +9,7 @@ fun xorChecksum(text: String): String {
 
     return value.toString(16).uppercase().padStart(2, '0')
 }
+
+object Checksum {
+    fun xor(text: String): String = xorChecksum(text)
+}

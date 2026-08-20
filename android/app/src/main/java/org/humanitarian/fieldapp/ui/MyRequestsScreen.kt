@@ -12,8 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,6 +25,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,13 +33,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.humanitarian.fieldapp.models.OrgRequest
+import org.humanitarian.fieldapp.models.UserRole
+import org.humanitarian.fieldapp.models.UserSession
 import org.humanitarian.fieldapp.network.ApiClient
 import org.humanitarian.fieldapp.network.ApiResult
+import org.humanitarian.fieldapp.offline.LocalRequestItem
+import org.humanitarian.fieldapp.offline.LocalRequestStore
 import org.humanitarian.fieldapp.ui.theme.PactAccent
 import org.humanitarian.fieldapp.ui.theme.PactBackground
 import org.humanitarian.fieldapp.ui.theme.PactPrimary
@@ -43,96 +52,163 @@ import org.humanitarian.fieldapp.ui.theme.PactSurface
 import org.humanitarian.fieldapp.ui.theme.PactTextPrimary
 import org.humanitarian.fieldapp.ui.theme.PactTextSecondary
 
-private val ORG_ID = "NGO01"
-
-private val STATUS_GREEN = Color(0xFF4CAF50)
-private val STATUS_ORANGE = Color(0xFFFF9800)
+private val STATUS_GREEN = Color(0xFF2E7D32)
+private val STATUS_ORANGE = Color(0xFFEF6C00)
 private val STATUS_RED = Color(0xFFF62440)
-private val STATUS_BLUE = Color(0xFF2196F3)
+private val STATUS_BLUE = Color(0xFF1565C0)
+private val STATUS_PURPLE = Color(0xFF6A1B9A)
 
-private fun statusColor(status: String): Color {
-    return when (status) {
-        "pending" -> STATUS_ORANGE
-        "accepted", "processing" -> STATUS_BLUE
-        "matched", "allocated", "completed" -> STATUS_GREEN
-        "rejected", "duplicate" -> STATUS_RED
-        else -> Color(0xFF7c6a58)
-    }
-}
-
-private fun statusLabel(status: String): String {
-    return when (status) {
-        "pending" -> "PENDING REVIEW"
-        "accepted" -> "APPROVED"
-        "processing" -> "APPROVED · AGENT WORKING"
-        "matched" -> "RESOURCES MATCHED"
-        "allocated" -> "ALLOCATED · PLAN CREATED"
-        "completed" -> "DELIVERED"
-        "rejected" -> "REJECTED"
-        "duplicate" -> "DUPLICATE"
-        else -> status.uppercase()
+private fun getDisplayColor(status: String): Color {
+    val s = status.uppercase()
+    return when {
+        s.contains("WAITING") || s.contains("PENDING") -> STATUS_ORANGE
+        s.contains("ACCEPTED") || s.contains("APPROVED") -> STATUS_GREEN
+        s.contains("ALLOCAT") || s.contains("MATCH") -> STATUS_BLUE
+        s.contains("DELIVER") || s.contains("COMPLET") -> STATUS_PURPLE
+        s.contains("REJECT") -> STATUS_RED
+        else -> Color(0xFF7C6A58)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyRequestsScreen(onBack: () -> Unit) {
-    var requests by remember { mutableStateOf<List<OrgRequest>>(emptyList()) }
-    var lastSync by remember { mutableStateOf("Loading…") }
+    val context = LocalContext.current
+    val session = UserSession.current
+    val orgId = session?.organizationId ?: "DONOR01"
+    val isDonor = session?.role == UserRole.DONOR_GROUP
+    val titleText = if (isDonor) "My Donations & Allocations" else "My Requests"
 
-    // Poll every 3 seconds — after Accept on web, status + allocation update here automatically
+    val localRequests by LocalRequestStore.requestsFlow.collectAsState()
+    var serverRequests by remember { mutableStateOf<List<OrgRequest>>(emptyList()) }
+    var syncStatusText by remember { mutableStateOf("Offline SMS Mode · Instant Local Updates") }
+
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> }
+
+    // Initialize local store on start & verify permissions
     LaunchedEffect(Unit) {
+        permissionLauncher.launch(
+            arrayOf(
+                android.Manifest.permission.RECEIVE_SMS,
+                android.Manifest.permission.READ_SMS,
+                android.Manifest.permission.SEND_SMS
+            )
+        )
+        LocalRequestStore.init(context)
+    }
+
+    // Passive, non-spam background sync (every 10s if internet is reachable, no frequent SMS)
+    LaunchedEffect(orgId) {
         while (true) {
-            when (val res = ApiClient.getRequestsByOrg(ORG_ID)) {
-                is ApiResult.Success -> {
-                    requests = res.data
-                    lastSync = "Live · ${res.data.size} request(s) · synced"
+            try {
+                when (val res = ApiClient.getRequestsByOrg(orgId)) {
+                    is ApiResult.Success -> {
+                        serverRequests = res.data
+                        syncStatusText = "Internet Active · ${res.data.size} server item(s) synced"
+                    }
+                    is ApiResult.Error -> {
+                        syncStatusText = "Offline SMS Mode · Listening for reply SMS"
+                    }
                 }
-                is ApiResult.Error -> lastSync = "Backend unreachable"
+            } catch (t: Throwable) {
+                t.printStackTrace()
+                syncStatusText = "Offline SMS Mode · Listening for reply SMS"
             }
-            delay(3000)
+            delay(10000)
         }
+    }
+
+    // Filter local requests for this org (or all for admin)
+    val filteredLocal = if (session?.role == UserRole.ADMIN) {
+        localRequests
+    } else {
+        localRequests.filter { it.organizationId.equals(orgId, ignoreCase = true) }
     }
 
     Scaffold(
         containerColor = PactBackground,
         topBar = {
             TopAppBar(
-                title = { Text("My Requests", fontWeight = FontWeight.SemiBold, color = PactTextPrimary) },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Back", color = PactPrimary, fontWeight = FontWeight.SemiBold) } },
+                title = { Text(titleText, fontWeight = FontWeight.SemiBold, color = PactTextPrimary) },
+                navigationIcon = {
+                    TextButton(onClick = onBack) {
+                        Text("Back", color = PactPrimary, fontWeight = FontWeight.SemiBold)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = PactSurface)
             )
         }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(lastSync, style = MaterialTheme.typography.bodySmall, color = PactTextSecondary)
+            // Status bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = syncStatusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = PactTextSecondary
+                )
+                Text(
+                    text = "${filteredLocal.size + serverRequests.size} total",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = PactPrimary
+                )
+            }
 
-            if (requests.isEmpty()) {
+            if (filteredLocal.isEmpty() && serverRequests.isEmpty()) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     color = PactSurface,
                     border = BorderStroke(1.dp, PactAccent)
                 ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Text("No requests found for $ORG_ID", style = MaterialTheme.typography.bodyLarge, color = PactTextSecondary)
-                        Text("Submit a field report to see it here.", style = MaterialTheme.typography.bodySmall, color = PactTextSecondary)
+                    Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = if (isDonor) "No donations found for $orgId" else "No requests found for $orgId",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = PactTextPrimary
+                        )
+                        Text(
+                            text = "Submit a field report. It will be sent via SMS when offline with default status 'WAITING FOR RESPONSE' and update automatically when the gateway replies.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PactTextSecondary
+                        )
                     }
                 }
             }
 
-            requests.forEach { req ->
-                RequestCard(req)
+            // 1. Render Local & SMS Requests (with real-time SMS status)
+            filteredLocal.forEach { item ->
+                LocalRequestCard(item)
+            }
+
+            // 2. Render Server Requests not already in local list
+            val localIds = filteredLocal.map { it.id }.toSet()
+            serverRequests.filterNot { localIds.contains(it.id) }.forEach { req ->
+                ServerRequestCard(req)
             }
         }
     }
 }
 
 @Composable
-private fun RequestCard(req: OrgRequest) {
+private fun LocalRequestCard(item: LocalRequestItem) {
+    val statusColor = getDisplayColor(item.status)
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -140,32 +216,259 @@ private fun RequestCard(req: OrgRequest) {
         border = BorderStroke(1.dp, PactAccent)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // Row 1: ID + live status badge
+            // Row 1: ID + Channel Badge + Status
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = item.id,
+                        fontWeight = FontWeight.Bold,
+                        color = PactTextPrimary
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (item.channel == "SMS") PactAccent else Color(0xFFE3F2FD)
+                    ) {
+                        Text(
+                            text = item.channel,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (item.channel == "SMS") PactPrimary else STATUS_BLUE
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = statusColor.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = item.status,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = statusColor
+                    )
+                }
+            }
+
+            // Row 2: Resource & Quantity
+            Text(
+                text = "${item.resource} × ${item.quantity}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = PactTextPrimary
+            )
+
+            // Row 3: GPS / Location
+            Text(
+                text = "GPS: ${item.locationCode} · Org: ${item.organizationId} · Urgency: ${item.urgency}",
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = PactTextSecondary
+            )
+
+            // Dynamic details based on SMS response status
+            when {
+                item.status.contains("ALLOCATED") && item.planId != null -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFE8F5E9),
+                        border = BorderStroke(1.dp, STATUS_GREEN)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "ALLOCATION CONFIRMED · ${item.planId}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = STATUS_GREEN
+                            )
+                            Text(
+                                text = "${item.allocatedQty ?: item.quantity} units assigned from ${item.allocatedOrg ?: "Provider"} · ETA: ${item.etaHours ?: 4} hrs",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = PactTextPrimary
+                            )
+                        }
+                    }
+                }
+
+                item.status == "ACCEPTED" -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFE8F5E9),
+                        border = BorderStroke(1.dp, STATUS_GREEN)
+                    ) {
+                        Text(
+                            text = "Received by Gateway & Accepted by Coordination Server. Matching resources…",
+                            modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = STATUS_GREEN,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                item.status == "REJECTED" -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFFFEBEE),
+                        border = BorderStroke(1.dp, STATUS_RED)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "REQUEST REJECTED",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = STATUS_RED
+                            )
+                            Text(
+                                text = "Reason: ${item.rejectReason ?: "Invalid details or duplicate request"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFB71C1C),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                item.status.contains("WAITING") -> {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFFFF8E1),
+                        border = BorderStroke(1.dp, STATUS_ORANGE)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Transmitted via SMS to Gateway (7401231450). Awaiting confirmation reply SMS.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = STATUS_ORANGE,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        LocalRequestStore.markAccepted(context, item.seq, "REQ-${item.seq.padStart(3, '0')}")
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, STATUS_GREEN)
+                                ) {
+                                    Text("Accept", style = MaterialTheme.typography.labelSmall, color = STATUS_GREEN)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        LocalRequestStore.markAllocated(
+                                            context = context,
+                                            seq = item.seq,
+                                            planId = "PLAN-${item.seq.padStart(3, '0')}",
+                                            allocatedOrg = "CSR02",
+                                            resourceCode = item.resourceCode,
+                                            allocatedQty = item.quantity,
+                                            etaHours = 4
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = STATUS_BLUE, contentColor = Color.White)
+                                ) {
+                                    Text("Allocate", style = MaterialTheme.typography.labelSmall)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        LocalRequestStore.markRejected(context, item.seq, "REQ-${item.seq.padStart(3, '0')}", "Duplicate or invalid supplies")
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, STATUS_RED)
+                                ) {
+                                    Text("Reject", style = MaterialTheme.typography.labelSmall, color = STATUS_RED)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Raw SMS payload snippet
+            if (item.rawPayload.isNotBlank()) {
+                Text(
+                    text = "SMS: ${item.rawPayload}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = PactTextSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerRequestCard(req: OrgRequest) {
+    val statusColor = getDisplayColor(req.status)
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = PactSurface,
+        border = BorderStroke(1.dp, PactAccent)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(req.id, fontWeight = FontWeight.Bold, color = PactTextPrimary)
-                Text(
-                    text = statusLabel(req.status),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = statusColor(req.status)
-                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = statusColor.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = req.status.uppercase(),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = statusColor
+                    )
+                }
             }
 
-            // Row 2: resource line
             Text(
                 text = "${req.type.uppercase()} · ${req.resource} × ${req.quantity}",
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
                 color = PactTextPrimary
             )
 
-            // Row 3: GPS coordinates
             val coords = if (req.latitude != null && req.longitude != null)
-                String.format("GPS: %.4f, %.4f", req.latitude, req.longitude)
-            else "GPS: not attached"
+                String.format(java.util.Locale.US, "GPS: %.4f, %.4f", req.latitude, req.longitude)
+            else "Location: ${req.locationCode ?: "RA"}"
+
             Text(
                 text = coords,
                 style = MaterialTheme.typography.bodySmall,
@@ -173,91 +476,32 @@ private fun RequestCard(req: OrgRequest) {
                 color = PactTextSecondary
             )
 
-            // ── ALLOCATION RESULT (appears after Accept + agent pipeline) ──
             if (req.matches.isNotEmpty()) {
                 val totalMatched = req.totalMatched ?: req.matches.sumOf { it.quantity }
                 val coverage = if (req.quantity > 0) (totalMatched * 100 / req.quantity) else 0
-                val fullyCovered = totalMatched >= req.quantity
 
                 Spacer(modifier = Modifier.height(4.dp))
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    color = if (fullyCovered) Color(0xFFE8F5E9) else Color(0xFFFFF8E1),
-                    border = BorderStroke(1.dp, PactAccent)
+                    color = Color(0xFFE8F5E9),
+                    border = BorderStroke(1.dp, STATUS_GREEN)
                 ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = if (req.status == "allocated" || req.status == "completed") {
-                                if (req.planId != null) "ALLOCATED · ${req.planId}" else "ALLOCATED"
-                            } else {
-                                "RESOURCES MATCHED"
-                            },
+                            text = if (req.planId != null) "ALLOCATED · ${req.planId}" else "ALLOCATED",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = if (fullyCovered) Color(0xFF2E7D32) else Color(0xFFEF6C00)
+                            color = STATUS_GREEN
                         )
-
                         Text(
                             text = "$totalMatched of ${req.quantity} units covered ($coverage%)",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             color = PactTextPrimary
                         )
-
-                        req.matches.forEach { m ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = m.organizationId,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    color = PactTextPrimary
-                                )
-                                Text(
-                                    text = "${m.quantity} units · ETA ${m.etaHours}h",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = PactTextSecondary
-                                )
-                            }
-                        }
                     }
                 }
-            } else if (req.status == "allocated" || req.status == "matched") {
-                // Pipeline finished but no suppliers had this resource
-                Spacer(modifier = Modifier.height(4.dp))
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFFFEBEE),
-                    border = BorderStroke(1.dp, PactAccent)
-                ) {
-                    Text(
-                        text = "No suppliers found — needs replanning or new donor registration",
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = STATUS_RED
-                    )
-                }
-            } else if (req.status == "accepted" || req.status == "processing") {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Agent pipeline running — matching providers…",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    color = STATUS_BLUE
-                )
-            } else if (req.status == "rejected") {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Request was rejected during validation",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    color = STATUS_RED
-                )
             }
         }
     }

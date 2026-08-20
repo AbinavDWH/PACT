@@ -26,9 +26,7 @@ const ALLOWED_ROUTES: Record<UserRole, string[]> = {
   ],
   donor_group: [
     "/donor",
-    "/matching",
     "/resources",
-    "/plans",
     "/map",
   ],
   individual: [

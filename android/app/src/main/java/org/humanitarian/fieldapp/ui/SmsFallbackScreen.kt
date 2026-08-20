@@ -31,11 +31,7 @@ fun SmsFallbackScreen(onBack: () -> Unit) {
     var statusMessage by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        // TODO: REPLACE THIS with your actual OfflineQueue reading logic.
-        // Example: If your OfflineQueue has a method like getPayloads(context):
-        // queuedPayloads = OfflineQueue.getPayloads(context)
-        // For now, it starts empty so the app compiles perfectly.
-        queuedPayloads = emptyList() 
+        queuedPayloads = org.humanitarian.fieldapp.offline.OfflineQueue.getQueuedReports(context).map { it.smsPayload }.filter { it.isNotBlank() }
     }
 
     Scaffold(

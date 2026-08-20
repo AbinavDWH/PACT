@@ -14,6 +14,7 @@ data class OrgRequest(
     val status: String,
     val latitude: Double?,
     val longitude: Double?,
+    val locationCode: String? = null,
     val createdAt: String,
     // NEW: allocation result fields
     val planId: String? = null,

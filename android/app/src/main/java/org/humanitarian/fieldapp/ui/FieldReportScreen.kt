@@ -53,6 +53,7 @@ import com.google.android.gms.location.Priority
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.humanitarian.fieldapp.models.FieldReport
+import org.humanitarian.fieldapp.models.UserSession
 import org.humanitarian.fieldapp.network.ApiClient
 import org.humanitarian.fieldapp.network.ApiResult
 import org.humanitarian.fieldapp.offline.OfflineQueue
@@ -92,7 +93,7 @@ private fun submitReport(report: FieldReport): Boolean {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FieldReportScreen(onBack: () -> Unit, onReturnHome: () -> Unit) {
-    var organizationId by rememberSaveable { mutableStateOf("NGO01") }
+    var organizationId by rememberSaveable { mutableStateOf(UserSession.current?.organizationId ?: "NGO01") }
     var locationCode by rememberSaveable { mutableStateOf("RA") }
     var resourceCode by rememberSaveable { mutableStateOf("F") }
     var quantity by rememberSaveable { mutableStateOf("") }
@@ -143,8 +144,16 @@ fun FieldReportScreen(onBack: () -> Unit, onReturnHome: () -> Unit) {
                     JSONObject(internetResult.data).optString("need_id", "unknown") 
                 } catch (e: Exception) { "unknown" }
                 SubmittedReports.add(context, report, needId)
+                org.humanitarian.fieldapp.offline.LocalRequestStore.addOrUpdateNeed(
+                    context = context,
+                    report = report,
+                    seq = "API",
+                    smsPayload = "",
+                    channel = "API",
+                    initialStatus = "ACCEPTED"
+                )
             } else {
-                // 2. Internet failed -> Generate SMS Payload
+                // 2. Internet failed (No internet) -> Generate Canonical SMS Payload
                 val seq = SmsEncoder.nextSequence(
                     context = context,
                     organizationId = report.organizationId
@@ -152,18 +161,38 @@ fun FieldReportScreen(onBack: () -> Unit, onReturnHome: () -> Unit) {
                 val generatedPayload = SmsEncoder.encodeNeed(report = report, seq = seq)
                 smsPayload = generatedPayload
 
-                // 3. SEND DIRECTLY TO SMS GATEWAY (Bypass Queue!)
-                val smsResult = ApiClient.postSmsWebhook(generatedPayload)
-                
-                if (smsResult is ApiResult.Success) {
-                    submissionState = "success"
-                    apiMessage = "Sent directly via SMS Gateway!"
-                    // WE DO NOT CALL OfflineQueue.addReport() HERE
+                // Save to local offline queue & store with default "WAITING FOR RESPONSE"
+                OfflineQueue.addReport(context, report, generatedPayload)
+                org.humanitarian.fieldapp.offline.LocalRequestStore.addOrUpdateNeed(
+                    context = context,
+                    report = report,
+                    seq = seq,
+                    smsPayload = generatedPayload,
+                    channel = "SMS",
+                    initialStatus = "WAITING FOR RESPONSE"
+                )
+
+                // 3. AUTOMATICALLY SEND REAL GSM SMS TO ADMIN GATEWAY PHONE
+                val gatewayPhone = org.humanitarian.fieldapp.sms.GatewayConfig.getGatewayPhoneNumber(context)
+                val smsSent = org.humanitarian.fieldapp.sms.SmsGatewayManager.sendRealGsmSms(
+                    context = context,
+                    toNumber = gatewayPhone,
+                    messageText = generatedPayload
+                )
+
+                if (smsSent) {
+                    submissionState = "sms_sent"
+                    apiMessage = "No Internet: Automatically transmitted via real GSM SMS to Gateway Phone ($gatewayPhone)!"
                 } else {
-                    // 4. Only use the queue if BOTH Internet and SMS Gateway fail
-                    submissionState = "queued"
-                    apiMessage = "Both channels failed. Saved to offline queue."
-                    OfflineQueue.addReport(context, report, generatedPayload)
+                    // Fallback to webhook if direct GSM wasn't available
+                    val smsResult = ApiClient.postSmsWebhook(generatedPayload)
+                    if (smsResult is ApiResult.Success) {
+                        submissionState = "success"
+                        apiMessage = "Relayed via SMS Gateway Webhook."
+                    } else {
+                        submissionState = "queued"
+                        apiMessage = "No Internet: Saved to offline queue & ready for SMS relay."
+                    }
                 }
             }
         }

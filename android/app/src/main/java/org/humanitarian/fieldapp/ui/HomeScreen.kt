@@ -50,6 +50,7 @@ import org.humanitarian.fieldapp.ui.theme.PactTextSecondary
 fun HomeScreen(
     onNavigateToFieldReport: () -> Unit,
     onNavigateToMyRequests: () -> Unit,
+    onNavigateToSmsGateway: () -> Unit,
     onNavigateToSmsFallback: () -> Unit,
     onNavigateToSmsDecoder: () -> Unit,
     onNavigateToOfflineMap: () -> Unit,
@@ -61,8 +62,19 @@ fun HomeScreen(
     var queueSize by remember { mutableStateOf(OfflineQueue.getQueueSize(context)) }
     var autoSyncMessage by remember { mutableStateOf("") }
 
-    // Auto-sync whenever the home screen opens
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> }
+
+    // Request SMS permissions and auto-sync whenever the home screen opens
     LaunchedEffect(Unit) {
+        permissionLauncher.launch(
+            arrayOf(
+                android.Manifest.permission.RECEIVE_SMS,
+                android.Manifest.permission.READ_SMS,
+                android.Manifest.permission.SEND_SMS
+            )
+        )
         queueSize = OfflineQueue.getQueueSize(context)
         if (queueSize > 0) {
             val result = SyncManager.syncQueue(context)
@@ -221,53 +233,176 @@ fun HomeScreen(
                 )
             }
 
-            // FIELD REPORT BUTTON (available to all roles)
-            Button(
-                onClick = onNavigateToFieldReport,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = PactPrimary,
-                    contentColor = PactOnPrimary
-                )
-            ) {
-                Text(
-                    text = "Field Report",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+            // ROLE-SPECIFIC MODULES & ACTION BUTTONS
+            when (userSession?.role) {
+                UserRole.ADMIN -> {
+                    // Admin: Full control over field reporting, request review, and gateway tools
+                    Button(
+                        onClick = onNavigateToSmsGateway,
+                        modifier = Modifier.fillMaxWidth().height(64.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PactPrimary,
+                            contentColor = PactOnPrimary
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(horizontalAlignment = Alignment.Start) {
+                                Text(
+                                    text = "SMS Gateway Hub",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Automated GSM Relay (Inbound / Outbound)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = PactAccent
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = PactAccent
+                            ) {
+                                Text(
+                                    text = "RELAY HUB",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PactPrimary
+                                )
+                            }
+                        }
+                    }
 
-            // MY REQUESTS BUTTON (available to all roles)
-            Button(
-                onClick = onNavigateToMyRequests,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = PactSurface,
-                    contentColor = PactTextPrimary
-                ),
-                border = BorderStroke(1.dp, PactAccent)
-            ) {
-                Text(
-                    text = "My Requests",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+                    Button(
+                        onClick = onNavigateToFieldReport,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PactSurface,
+                            contentColor = PactTextPrimary
+                        ),
+                        border = BorderStroke(1.dp, PactAccent)
+                    ) {
+                        Text(
+                            text = "Field Report",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
 
-            // ROLE-SPECIFIC MODULES
-            // Admin and Donor Group can see all modules
-            // Individual sees limited set (field-focused)
-            if (userSession?.role != UserRole.INDIVIDUAL) {
-                HomeActionButton(title = "SMS Fallback", onClick = onNavigateToSmsFallback)
-                HomeActionButton(title = "SMS Decoder", onClick = onNavigateToSmsDecoder)
-                HomeActionButton(title = "Offline Map", onClick = onNavigateToOfflineMap)
-                HomeActionButton(title = "Status Update", onClick = onNavigateToStatus)
-            } else {
-                // Individual field workers get simplified view
-                HomeActionButton(title = "SMS Fallback", onClick = onNavigateToSmsFallback)
-                HomeActionButton(title = "Offline Map", onClick = onNavigateToOfflineMap)
+                    Button(
+                        onClick = onNavigateToMyRequests,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PactSurface,
+                            contentColor = PactTextPrimary
+                        ),
+                        border = BorderStroke(1.dp, PactAccent)
+                    ) {
+                        Text(
+                            text = "All Requests",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    HomeActionButton(title = "SMS Fallback", onClick = onNavigateToSmsFallback)
+                    HomeActionButton(title = "SMS Decoder", onClick = onNavigateToSmsDecoder)
+                    HomeActionButton(title = "Offline Map", onClick = onNavigateToOfflineMap)
+                    HomeActionButton(title = "Status Update", onClick = onNavigateToStatus)
+                }
+
+                UserRole.INDIVIDUAL -> {
+                    // Individual: Field crisis reporting and offline map
+                    Button(
+                        onClick = onNavigateToFieldReport,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PactPrimary,
+                            contentColor = PactOnPrimary
+                        )
+                    ) {
+                        Text(
+                            text = "Field Report",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Button(
+                        onClick = onNavigateToMyRequests,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PactSurface,
+                            contentColor = PactTextPrimary
+                        ),
+                        border = BorderStroke(1.dp, PactAccent)
+                    ) {
+                        Text(
+                            text = "My Requests",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    HomeActionButton(title = "SMS Gateway Hub", onClick = onNavigateToSmsGateway)
+                    HomeActionButton(title = "SMS Fallback", onClick = onNavigateToSmsFallback)
+                    HomeActionButton(title = "Offline Map", onClick = onNavigateToOfflineMap)
+                }
+
+                UserRole.DONOR_GROUP, null -> {
+                    // Donor Group: Restricted access - Track aid donations & allocations, view regional map
+                    Button(
+                        onClick = onNavigateToMyRequests,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PactPrimary,
+                            contentColor = PactOnPrimary
+                        )
+                    ) {
+                        Text(
+                            text = "My Donations & Allocations",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    HomeActionButton(title = "SMS Gateway Hub", onClick = onNavigateToSmsGateway)
+                    HomeActionButton(title = "Offline Map", onClick = onNavigateToOfflineMap)
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = PactSurface,
+                        border = BorderStroke(1.dp, PactAccent)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Donor Organization Access",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = PactTextPrimary
+                            )
+                            Text(
+                                text = "Your account is authorized to view registered aid, match distributions, and crisis coverage maps. Field crisis intake and decoder tools are restricted to field coordinators.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = PactTextSecondary
+                            )
+                        }
+                    }
+                }
             }
         }
     }

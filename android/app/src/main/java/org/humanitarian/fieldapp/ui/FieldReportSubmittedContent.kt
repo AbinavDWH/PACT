@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -140,6 +141,27 @@ fun FieldReportSubmittedContent(
                             color = PactTextSecondary
                         )
                     }
+                } else if (submissionState == "sms_sent") {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFE8F5E9),
+                        border = BorderStroke(1.dp, Color(0xFF2E7D32))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "AUTOMATICALLY RELAYED VIA GSM SMS",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2E7D32)
+                            )
+                            Text(
+                                text = apiMessage,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF1B5E20)
+                            )
+                        }
+                    }
                 } else if (submissionState == "queued") {
                     Text(
                         text = apiMessage,
@@ -149,7 +171,7 @@ fun FieldReportSubmittedContent(
                     )
 
                     Text(
-                        text = "This report is safely stored on your device. M5 converts it to an SMS payload, and M10 will sync it when internet returns.",
+                        text = "This report is safely stored on your device. M5 converted it to an SMS payload, and M10 will sync it when internet returns.",
                         style = MaterialTheme.typography.bodySmall,
                         color = PactTextSecondary
                     )
@@ -164,6 +186,9 @@ fun FieldReportSubmittedContent(
         }
 
         if (smsPayload.isNotBlank()) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val gatewayNumber = org.humanitarian.fieldapp.sms.GatewayConfig.getGatewayPhoneNumber(context)
+
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -175,21 +200,68 @@ fun FieldReportSubmittedContent(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "SMS Fallback Payload",
+                        text = "Canonical SMS Payload",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = PactTextPrimary
                     )
 
-                    Text(
-                        text = smsPayload,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = FontFamily.Monospace,
-                        color = PactTextPrimary
-                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = PactBackground,
+                        border = BorderStroke(1.dp, PactAccent)
+                    ) {
+                        Text(
+                            text = smsPayload,
+                            modifier = Modifier.padding(14.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = PactPrimary
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PACT SMS", smsPayload))
+                                android.widget.Toast.makeText(context, "Payload copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, PactAccent)
+                        ) {
+                            Text("Copy Payload", color = PactTextPrimary)
+                        }
+
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO).apply {
+                                        data = android.net.Uri.parse("smsto:$gatewayNumber")
+                                        putExtra("sms_body", smsPayload)
+                                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Cannot open SMS app", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PactPrimary, contentColor = PactOnPrimary)
+                        ) {
+                            Text("Open SMS App")
+                        }
+                    }
 
                     Text(
-                        text = "This payload follows the canonical need format from sms.md. M6 will add a dedicated SMS fallback screen with copy and send options.",
+                        text = "Auto-transmission targeted Gateway: $gatewayNumber. You can also send via default system SMS app.",
                         style = MaterialTheme.typography.bodySmall,
                         color = PactTextSecondary
                     )

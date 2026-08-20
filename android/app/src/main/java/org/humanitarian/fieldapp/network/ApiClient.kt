@@ -20,14 +20,14 @@ object ApiClient {
     // CHANNEL 1: NORMAL INTERNET API
     // Used when internet is available (Field Report direct send, M10 sync)
     // ═══════════════════════════════════════════════════════
-    private const val INTERNET_API_URL = "http://10.142.1.84:8000"
+    private const val INTERNET_API_URL = "http://10.142.1.77:8000"
 
     // ═══════════════════════════════════════════════════════
     // CHANNEL 2: SMS GATEWAY (SIMULATED)
     // Used for SMS fallback: sending SMS payloads + polling inbox
     // Can be a DIFFERENT IP/port to simulate a separate telecom gateway
     // ═══════════════════════════════════════════════════════
-    private const val SMS_GATEWAY_URL = "http://10.142.1.84:8000"
+    private const val SMS_GATEWAY_URL = "http://10.142.1.77:8000"
 
     // ───────────── INTERNET CHANNEL ─────────────
 
@@ -83,7 +83,7 @@ object ApiClient {
 
     // ───────────── SMS GATEWAY CHANNEL ─────────────
 
-    suspend fun postSmsWebhook(smsPayload: String): ApiResult<String> {
+    suspend fun postSmsWebhook(smsPayload: String, fromNumber: String? = null): ApiResult<String> {
         return withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
             try {
@@ -96,6 +96,9 @@ object ApiClient {
                 connection.doOutput = true
 
                 val payload = JSONObject().put("sms", smsPayload)
+                if (!fromNumber.isNullOrBlank()) {
+                    payload.put("from_number", fromNumber)
+                }
 
                 connection.outputStream.use { outputStream ->
                     outputStream.write(payload.toString().toByteArray())
@@ -113,6 +116,115 @@ object ApiClient {
                 else ApiResult.Error("HTTP $responseCode: ${responseBody.take(200)}")
             } catch (exception: Exception) {
                 ApiResult.Error(exception.message ?: "SMS gateway unreachable")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    suspend fun getPendingOutboundSms(): ApiResult<List<org.humanitarian.fieldapp.models.OutboundSmsMessage>> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$SMS_GATEWAY_URL/api/v1/sms/outbox?status=pending")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 6000
+                connection.readTimeout = 6000
+
+                val responseCode = connection.responseCode
+                if (responseCode in 200..299) {
+                    val body = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(body)
+                    val arr = json.getJSONArray("messages")
+                    val list = mutableListOf<org.humanitarian.fieldapp.models.OutboundSmsMessage>()
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(
+                            org.humanitarian.fieldapp.models.OutboundSmsMessage(
+                                id = obj.optString("id", ""),
+                                toNumber = obj.optString("to_number", ""),
+                                message = obj.optString("message", ""),
+                                type = obj.optString("type", "allocation"),
+                                planId = if (obj.isNull("plan_id")) null else obj.optString("plan_id"),
+                                status = obj.optString("status", "pending"),
+                                createdAt = obj.optString("created_at", "")
+                            )
+                        )
+                    }
+                    ApiResult.Success(list)
+                } else {
+                    ApiResult.Error("HTTP $responseCode")
+                }
+            } catch (e: Exception) {
+                ApiResult.Error(e.message ?: "Outbox fetch failed")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    suspend fun ackOutboundSms(smsId: String, status: String, error: String? = null): ApiResult<String> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$SMS_GATEWAY_URL/api/v1/sms/outbox/$smsId/ack")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 6000
+                connection.readTimeout = 6000
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+
+                val payload = JSONObject().put("status", status)
+                if (!error.isNullOrBlank()) payload.put("error", error)
+
+                connection.outputStream.use { it.write(payload.toString().toByteArray()); it.flush() }
+
+                val responseCode = connection.responseCode
+                if (responseCode in 200..299) {
+                    val body = connection.inputStream.bufferedReader().use { it.readText() }
+                    ApiResult.Success(body)
+                } else {
+                    ApiResult.Error("HTTP $responseCode")
+                }
+            } catch (e: Exception) {
+                ApiResult.Error(e.message ?: "Ack failed")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    suspend fun queueOutboundSms(toNumber: String, message: String, type: String = "manual", planId: String? = null): ApiResult<String> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$SMS_GATEWAY_URL/api/v1/sms/outbox")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 6000
+                connection.readTimeout = 6000
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+
+                val payload = JSONObject()
+                    .put("to_number", toNumber)
+                    .put("message", message)
+                    .put("type", type)
+                if (!planId.isNullOrBlank()) payload.put("plan_id", planId)
+
+                connection.outputStream.use { it.write(payload.toString().toByteArray()); it.flush() }
+
+                val responseCode = connection.responseCode
+                if (responseCode in 200..299) {
+                    val body = connection.inputStream.bufferedReader().use { it.readText() }
+                    ApiResult.Success(body)
+                } else {
+                    ApiResult.Error("HTTP $responseCode")
+                }
+            } catch (e: Exception) {
+                ApiResult.Error(e.message ?: "Queue outbound failed")
             } finally {
                 connection?.disconnect()
             }
@@ -247,6 +359,7 @@ object ApiClient {
                                 status = o.optString("status", "pending"),
                                 latitude = if (o.isNull("latitude")) null else o.optDouble("latitude"),
                                 longitude = if (o.isNull("longitude")) null else o.optDouble("longitude"),
+                                locationCode = if (o.isNull("location_code")) null else o.optString("location_code"),
                                 createdAt = o.optString("created_at", ""),
                                 planId = if (o.isNull("plan_id")) null else o.optString("plan_id"),
                                 totalMatched = if (o.isNull("total_matched")) null else o.optInt("total_matched"),

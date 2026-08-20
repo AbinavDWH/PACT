@@ -7,9 +7,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import org.humanitarian.fieldapp.models.UserSession
 import org.humanitarian.fieldapp.ui.FieldReportScreen
 import org.humanitarian.fieldapp.ui.HomeScreen
 import org.humanitarian.fieldapp.ui.LoginScreen
+import org.humanitarian.fieldapp.ui.MyRequestsScreen
 import org.humanitarian.fieldapp.ui.SmsDecoderScreen
 import org.humanitarian.fieldapp.ui.SmsFallbackScreen
 import org.humanitarian.fieldapp.ui.OfflineMapScreen
@@ -43,6 +45,9 @@ class MainActivity : ComponentActivity() {
                             onNavigateToMyRequests = {
                                 currentScreen = "my_requests"
                             },
+                            onNavigateToSmsGateway = {
+                                currentScreen = "sms_gateway"
+                            },
                             onNavigateToSmsFallback = {
                                 currentScreen = "sms_fallback"
                             },
@@ -62,12 +67,28 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    "sms_gateway" -> {
+                        org.humanitarian.fieldapp.ui.AdminSmsGatewayScreen(
+                            onBack = {
+                                currentScreen = "home"
+                            }
+                        )
+                    }
+
                     "field_report" -> {
                         FieldReportScreen(
                             onBack = {
                                 currentScreen = "home"
                             },
                             onReturnHome = {
+                                currentScreen = "home"
+                            }
+                        )
+                    }
+
+                    "my_requests" -> {
+                        MyRequestsScreen(
+                            onBack = {
                                 currentScreen = "home"
                             }
                         )

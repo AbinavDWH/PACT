@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createRequest, listRequests } from "../../lib/api";
 import { HubRequest } from "../../lib/types";
+import { getSession, UserSession } from "../../lib/auth";
 
 const LOCATIONS = [
   { code: "RA", label: "RA — Region A" },
@@ -48,6 +49,7 @@ function statusBadge(s: string) {
 }
 
 export default function DonorPage() {
+  const [session, setSessionState] = useState<UserSession | null>(null);
   // Shared organization identity
   const [orgId, setOrgId] = useState("DONOR01");
 
@@ -66,6 +68,15 @@ export default function DonorPage() {
   const [result, setResult] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [submissions, setSubmissions] = useState<HubRequest[]>([]);
+
+  // Load session on mount
+  useEffect(() => {
+    const s = getSession();
+    if (s) {
+      setSessionState(s);
+      setOrgId(s.organizationId);
+    }
+  }, []);
 
   // Live: this org's submissions (poll every 3s)
   useEffect(() => {
@@ -157,26 +168,42 @@ export default function DonorPage() {
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#F62440]">
             Donor Portal
           </p>
-          <h1 className="mt-1 text-3xl font-bold">Register Resources & File Needs</h1>
+          <h1 className="mt-1 text-3xl font-bold">Register Resources & Aid Donations</h1>
           <p className="mt-1 text-sm text-[#7c6a58]">
-            Donate medical kits, food, water and more — or request what your region needs.
-            Everything flows through the same privacy-checked pipeline.
+            Donate medical kits, food, water and supplies directly to the humanitarian network.
+            All contributions are coordinated through privacy-preserving agents.
           </p>
         </header>
 
-        {/* Shared organization identity */}
+        {/* Authenticated donor organization identity */}
         <div className="rounded-xl border border-[#FFE5BF] bg-white p-6">
-          <label className={labelClass}>Your Organization ID</label>
-          <input
-            type="text"
-            value={orgId}
-            onChange={(e) => setOrgId(e.target.value.toUpperCase())}
-            placeholder="DONOR01"
-            className="mt-1 w-full max-w-sm rounded-lg border border-[#e3c9a8] bg-white px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#F62440]"
-          />
-          <p className="mt-1 text-xs text-[#a1866f]">
-            Used for both forms. Your submissions appear below and on the Request Hub.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <label className={labelClass}>Organization Identity</label>
+              <div className="mt-1 flex items-center gap-3">
+                <input
+                  type="text"
+                  value={orgId}
+                  disabled={session !== null}
+                  onChange={(e) => setOrgId(e.target.value.toUpperCase())}
+                  placeholder="DONOR01"
+                  className={`w-full max-w-sm rounded-lg border border-[#e3c9a8] px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#F62440] ${
+                    session ? "bg-[#FFF8E7] text-[#7c4a12] cursor-not-allowed" : "bg-white"
+                  }`}
+                />
+                {session && (
+                  <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-800">
+                    Verified Donor Session
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-[#a1866f]">
+                {session
+                  ? `Authenticated as ${session.displayName} (${session.organizationId}). Access restricted to your organization's submissions.`
+                  : "Used for both forms. Your submissions appear below and on the Request Hub."}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Result banner */}

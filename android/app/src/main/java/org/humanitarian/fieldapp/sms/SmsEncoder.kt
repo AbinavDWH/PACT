@@ -17,19 +17,28 @@ object SmsEncoder {
         return String.format(Locale.US, "%03d", seq)
     }
 
+    private val defaultLocationCoords = mapOf(
+        "RA" to Pair(13.0499, 80.2824),
+        "RB" to Pair(13.0418, 80.2341),
+        "RC" to Pair(13.0850, 80.2101),
+        "D1" to Pair(13.1150, 80.3010),
+        "D2" to Pair(13.0067, 80.2572)
+    )
+
     /**
-     * Canonical need SMS — sms.md section 11:
+     * Canonical need SMS — sms.md section 11 & section 10:
      * N|SEQ|ORG|LOC|RESOURCE|QTY|URGENCY|CRC
      *
-     * LOC = real GPS coordinates ("lat,lng", 4 decimals) when the device
-     * has a GPS lock — otherwise falls back to the location code.
+     * LOC = real GPS coordinates ("lat,lng", 4 decimals).
+     * If no live GPS lock, falls back to region coordinates so latitude & longitude
+     * are ALWAYS transmitted in the SMS.
      */
     fun encodeNeed(report: FieldReport, seq: String): String {
         val loc = if (hasRealGps(report)) {
-            // sms.md section 10: decimal coordinates, max 4 places, lat first
             String.format(Locale.US, "%.4f,%.4f", report.latitude!!, report.longitude!!)
         } else {
-            report.locationCode
+            val coords = defaultLocationCoords[report.locationCode] ?: Pair(13.0827, 80.2707)
+            String.format(Locale.US, "%.4f,%.4f", coords.first, coords.second)
         }
 
         val body = listOf(

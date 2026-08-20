@@ -113,19 +113,31 @@ object SmsDecoder {
             if (!checksumOk(message, parts[7])) {
                 return errorResult("Checksum failed (expected ${xorChecksum(message.substringBeforeLast("|"))}, got ${parts[7]})")
             }
-            val seq = parts[1]; val org = parts[2]; val loc = parts[3].uppercase()
+            val seq = parts[1]; val org = parts[2]; val loc = parts[3].trim()
             val res = parts[4].uppercase(); val qty = parts[5]; val urg = parts[6].uppercase()
             fields["Sequence"] = seq; fields["Organization"] = org
-            fields["Location Code"] = loc; fields["Location Name"] = locationNames[loc] ?: loc
+
+            val locationDisplay = if (loc.contains(",")) {
+                fields["Coordinates"] = loc
+                val coords = loc.split(",")
+                json.put("latitude", coords.getOrNull(0)?.toDoubleOrNull() ?: 0.0)
+                json.put("longitude", coords.getOrNull(1)?.toDoubleOrNull() ?: 0.0)
+                "coordinates $loc"
+            } else {
+                val locUpper = loc.uppercase()
+                fields["Location Code"] = locUpper; fields["Location Name"] = locationNames[locUpper] ?: locUpper
+                json.put("location_code", locUpper); json.put("location_name", locationNames[locUpper] ?: locUpper)
+                locationNames[locUpper] ?: locUpper
+            }
+
             fields["Resource"] = resourceNames[res] ?: res; fields["Quantity"] = qty
             fields["Urgency"] = urgencyNames[urg] ?: urg; fields["Checksum"] = parts[7]
             json.put("seq", seq); json.put("organization_id", org)
-            json.put("location_code", loc); json.put("location_name", locationNames[loc] ?: loc)
             json.put("resource", resourceNames[res] ?: res)
             json.put("quantity", qty.toIntOrNull() ?: 0)
             json.put("urgency", urgencyNames[urg] ?: urg); json.put("checksum", parts[7])
 
-            val human = "$org needs $qty ${resourceDisplay[res] ?: res} in ${locationNames[loc] ?: loc}. " +
+            val human = "$org needs $qty ${resourceDisplay[res] ?: res} at $locationDisplay. " +
                 "Urgency: ${urgencyDisplay[urg] ?: urg}."
             return DecodedSms(true, "Need Request", "N", human, fields, pretty(json), true, "")
         } else if (parts.size == 6) {

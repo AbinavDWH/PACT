@@ -354,10 +354,59 @@ PLANS = {}
 AGENT_ACTIVITY = []
 ORGANIZATIONS = {}
 PROCESSED_SEQS = set()
+OUTBOUND_SMS_QUEUE = {}
+GATEWAY_ACTIVITY_LOGS = []
 
 _REQUEST_COUNTER = itertools.count(1)
 _SEQ_COUNTER = itertools.count(6)
 _PLAN_COUNTER = itertools.count(101)
+_SMS_OUT_COUNTER = itertools.count(1)
+
+ORG_PHONE_MAP = {
+    "NGO01": "+919876543210",
+    "CSR02": "+919876543211",
+    "GOV03": "+919876543212",
+    "ADMIN01": "+919876543200",
+}
+
+def next_outbound_sms_id() -> str:
+    return f"SMS-OUT-{next(_SMS_OUT_COUNTER):03d}"
+
+def add_gateway_log(direction: str, from_to: str, message: str, status: str, detail: str = ""):
+    GATEWAY_ACTIVITY_LOGS.append({
+        "id": f"GW-{len(GATEWAY_ACTIVITY_LOGS)+1:04d}",
+        "ts": now_iso(),
+        "direction": direction,
+        "from_to": from_to,
+        "message": message,
+        "status": status,
+        "detail": detail
+    })
+    if len(GATEWAY_ACTIVITY_LOGS) > 300:
+        del GATEWAY_ACTIVITY_LOGS[: len(GATEWAY_ACTIVITY_LOGS) - 300]
+
+def queue_outbound_sms(to_number: str, message: str, msg_type: str = "allocation", plan_id: Optional[str] = None):
+    sms_id = next_outbound_sms_id()
+    item = {
+        "id": sms_id,
+        "to_number": to_number,
+        "message": message,
+        "type": msg_type,
+        "plan_id": plan_id,
+        "status": "pending",
+        "created_at": now_iso(),
+        "dispatched_at": None,
+        "error": None
+    }
+    OUTBOUND_SMS_QUEUE[sms_id] = item
+    add_gateway_log(
+        direction="OUTBOUND",
+        from_to=to_number,
+        message=message,
+        status="QUEUED_ON_SERVER",
+        detail=f"Queued for mobile gateway dispatch ({msg_type})"
+    )
+    return item
 
 AGENT_DELAY_SECONDS = 1.2
 AUTO_ACCEPT_WEB = False
@@ -571,6 +620,13 @@ def seed_demo_data():
     add_activity("SMS Gateway", "SMS from NGO01 decoded -> REQ-001 (need)")
     add_activity("SMS Gateway", "SMS from CSR02 decoded -> REQ-003 (resource)")
     add_activity("Coordination Agent", "PLAN-100 delivered to Region A")
+
+    # Seed initial gateway activity & pending outbound SMS for mobile relay testing
+    demo_alloc_body = "A|003|PLAN-100|CSR02|F|200|RA|4"
+    demo_alloc_sms = f"{demo_alloc_body}|{xor_checksum(demo_alloc_body)}"
+    queue_outbound_sms(to_number="+919876543211", message=demo_alloc_sms, msg_type="allocation", plan_id="PLAN-100")
+    add_gateway_log("INBOUND", "+919876543210", "N|001|NGO01|RA|F|300|H|B3", "FORWARDED_TO_SERVER", "Decoded -> REQ-001")
+    add_gateway_log("INBOUND", "+919876543211", "R|002|CSR02|RA|F|200|A|7C", "FORWARDED_TO_SERVER", "Decoded -> REQ-003")
 
 
 def check_checksum(rec: dict) -> bool:
@@ -890,6 +946,27 @@ async def run_need_pipeline(request_id: str):
 
     PLANS[plan["plan_id"]] = plan
 
+    # ═══════ REAL SMS GATEWAY OUTBOX TRIGGER ═══════
+    # Automatically queue canonical allocation SMS for each provider and requester so mobile gateway relays it via GSM
+    lat = rec.get("latitude")
+    lng = rec.get("longitude")
+    loc_str = f"{lat:.4f},{lng:.4f}" if (lat is not None and lng is not None and (lat != 0 or lng != 0)) else rec.get("location_code", "RA")
+
+    for a in allocations:
+        org_id = a["organization_id"]
+        phone = ORG_PHONE_MAP.get(org_id, "+917401231450")
+        alloc_seq = next_seq()
+        alloc_body = f"A|{alloc_seq}|{plan['plan_id']}|{org_id}|{resource_code}|{a['quantity']}|{loc_str}|{a['eta_hours']}"
+        full_alloc_sms = f"{alloc_body}|{xor_checksum(alloc_body)}"
+        
+        # Dispatch to provider organization
+        queue_outbound_sms(to_number=phone, message=full_alloc_sms, msg_type="allocation", plan_id=plan["plan_id"])
+        
+        # AUTO REPLY: Also dispatch allocation update directly back to field requester phone
+        req_phone = rec.get("from_number")
+        if req_phone and req_phone != "Device-SIM" and req_phone != phone:
+            queue_outbound_sms(to_number=req_phone, message=full_alloc_sms, msg_type="allocation", plan_id=plan["plan_id"])
+
     await asyncio.sleep(AGENT_DELAY_SECONDS)
     rec["status"] = "allocated"
     rec["plan_id"] = plan["plan_id"]
@@ -962,11 +1039,40 @@ def create_need(payload: NeedRequest):
 def sms_webhook(payload: SmsWebhookRequest):
     result = parse_sms(payload.sms)
     decoded = result.get("decoded")
+    from_num = payload.from_number or "Device-SIM"
+    
     if result.get("status") == "accepted" and isinstance(decoded, dict) \
             and decoded.get("type") in ("need", "resource", "status"):
         hub_request = create_request_from_sms(decoded)
         if hub_request:
             result["hub_request_id"] = hub_request["id"]
+            if payload.from_number:
+                hub_request["from_number"] = payload.from_number
+                if payload.from_number != "Device-SIM":
+                    # AUTO REPLY: Send instant Confirmation SMS back to field phone
+                    conf_body = f"C|{next_seq()}|{hub_request['id']}|OK"
+                    conf_sms = f"{conf_body}|{xor_checksum(conf_body)}"
+                    queue_outbound_sms(
+                        to_number=payload.from_number,
+                        message=conf_sms,
+                        msg_type="confirmation",
+                        plan_id=hub_request["id"]
+                    )
+            add_gateway_log(
+                direction="INBOUND",
+                from_to=from_num,
+                message=payload.sms,
+                status="FORWARDED_TO_SERVER",
+                detail=f"Parsed as {decoded.get('type')} -> {hub_request['id']}"
+            )
+    else:
+        add_gateway_log(
+            direction="INBOUND",
+            from_to=from_num,
+            message=payload.sms,
+            status="ERROR" if result.get("status") == "error" else "RECEIVED",
+            detail=result.get("error", "Received raw SMS")
+        )
     return result
 
 
@@ -1086,6 +1192,18 @@ def reject_request(request_id: str, body: RejectBody):
     rec["reject_reason"] = body.reason.strip() or "invalid"
     rec["reviewed_at"] = now_iso()
     add_activity("Coordinator", f"{request_id} rejected ({rec['reject_reason']})")
+
+    # AUTO REPLY: Queue Rejection SMS back to field phone
+    req_phone = rec.get("from_number")
+    if req_phone and req_phone != "Device-SIM":
+        rej_body = f"X|{next_seq()}|{request_id}|{rec['reject_reason']}"
+        queue_outbound_sms(
+            to_number=req_phone,
+            message=f"{rej_body}|{xor_checksum(rej_body)}",
+            msg_type="rejection",
+            plan_id=request_id
+        )
+
     return rec
 
 
@@ -1144,7 +1262,88 @@ def seed_request_hub_on_startup():
 
 
 # =====================================================================
-# FAKE SMS INBOX (For Android Polling Demo)
+# REAL SMS GATEWAY - BIDIRECTIONAL RELAY ENGINE
+# =====================================================================
+
+class OutboundSmsCreate(BaseModel):
+    to_number: str
+    message: str
+    type: Optional[str] = "manual"
+    plan_id: Optional[str] = None
+
+
+class OutboundAckBody(BaseModel):
+    status: str = "sent"  # "sent" or "failed"
+    error: Optional[str] = None
+
+
+@app.get("/api/v1/sms/outbox")
+def get_sms_outbox(status: Optional[str] = "pending"):
+    """Mobile SMS Gateway polls this to get pending outgoing SMS messages to physically send via GSM"""
+    items = list(OUTBOUND_SMS_QUEUE.values())
+    if status:
+        items = [m for m in items if m.get("status") == status]
+    items.sort(key=lambda m: m.get("created_at", ""))
+    return {"count": len(items), "messages": items}
+
+
+@app.post("/api/v1/sms/outbox", status_code=201)
+def create_outbound_sms(body: OutboundSmsCreate):
+    """Queue an outbound SMS message to be sent by the mobile gateway"""
+    item = queue_outbound_sms(
+        to_number=body.to_number.strip(),
+        message=body.message.strip(),
+        msg_type=body.type or "manual",
+        plan_id=body.plan_id
+    )
+    return item
+
+
+@app.post("/api/v1/sms/outbox/{sms_id}/ack")
+def ack_outbound_sms(sms_id: str, body: OutboundAckBody):
+    """Mobile Gateway calls this after sending SMS via device SmsManager"""
+    item = OUTBOUND_SMS_QUEUE.get(sms_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="outbound sms not found")
+    item["status"] = body.status
+    item["dispatched_at"] = now_iso()
+    if body.error:
+        item["error"] = body.error
+    add_gateway_log(
+        direction="OUTBOUND",
+        from_to=item["to_number"],
+        message=item["message"],
+        status="SENT_VIA_GSM" if body.status == "sent" else "FAILED",
+        detail=f"Mobile SIM dispatch {body.status} ({body.error or 'ok'})"
+    )
+    return {"status": "acknowledged", "item": item}
+
+
+@app.get("/api/v1/sms/gateway/logs")
+def get_gateway_logs(limit: int = 50):
+    """Returns real-time gateway activity logs"""
+    return {
+        "count": len(GATEWAY_ACTIVITY_LOGS),
+        "logs": list(reversed(GATEWAY_ACTIVITY_LOGS[-limit:]))
+    }
+
+
+@app.get("/api/v1/sms/gateway/stats")
+def get_gateway_stats():
+    """Returns gateway aggregate counts"""
+    inbound_count = sum(1 for l in GATEWAY_ACTIVITY_LOGS if l["direction"] == "INBOUND")
+    outbound_count = sum(1 for l in GATEWAY_ACTIVITY_LOGS if l["direction"] == "OUTBOUND")
+    pending_outbound = sum(1 for m in OUTBOUND_SMS_QUEUE.values() if m["status"] == "pending")
+    return {
+        "inbound_total": inbound_count,
+        "outbound_total": outbound_count,
+        "pending_outbound": pending_outbound,
+        "logs_total": len(GATEWAY_ACTIVITY_LOGS)
+    }
+
+
+# =====================================================================
+# FAKE SMS INBOX (Legacy Polling Demo compatibility)
 # =====================================================================
 fake_sms_inbox = []
 
