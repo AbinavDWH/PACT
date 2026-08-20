@@ -344,7 +344,10 @@ object ApiClient {
                                     OrgMatch(
                                         organizationId = m.optString("organization_id", ""),
                                         quantity = m.optInt("quantity", 0),
-                                        etaHours = m.optInt("eta_hours", 0)
+                                        etaHours = m.optInt("eta_hours", 0),
+                                        distanceKm = if (m.isNull("distance_km")) null else m.optDouble("distance_km"),
+                                        latitude = if (m.isNull("latitude")) null else m.optDouble("latitude"),
+                                        longitude = if (m.isNull("longitude")) null else m.optDouble("longitude")
                                     )
                                 )
                             }
@@ -360,11 +363,18 @@ object ApiClient {
                                 latitude = if (o.isNull("latitude")) null else o.optDouble("latitude"),
                                 longitude = if (o.isNull("longitude")) null else o.optDouble("longitude"),
                                 locationCode = if (o.isNull("location_code")) null else o.optString("location_code"),
+                                locationName = if (o.isNull("location_name")) null else o.optString("location_name"),
                                 createdAt = o.optString("created_at", ""),
                                 planId = if (o.isNull("plan_id")) null else o.optString("plan_id"),
                                 totalMatched = if (o.isNull("total_matched")) null else o.optInt("total_matched"),
                                 matches = matches,
-                                rejectReason = if (o.isNull("reject_reason")) null else o.optString("reject_reason")
+                                rejectReason = if (o.isNull("reject_reason")) null else o.optString("reject_reason"),
+                                neederOrgId = if (o.isNull("needer_org_id")) null else o.optString("needer_org_id"),
+                                neederLocationCode = if (o.isNull("needer_location_code")) null else o.optString("needer_location_code"),
+                                neederLocationName = if (o.isNull("needer_location_name")) null else o.optString("needer_location_name"),
+                                neederLatitude = if (o.isNull("needer_latitude")) null else o.optDouble("needer_latitude"),
+                                neederLongitude = if (o.isNull("needer_longitude")) null else o.optDouble("needer_longitude"),
+                                distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km")
                             )
                         )
                     }

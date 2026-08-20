@@ -1266,7 +1266,7 @@ async def run_need_pipeline(request_id: str):
             ORGANIZATIONS[match_org_id]["resources"][resource_code] = max(0, current_org_stock - take)
             db.save_organization(match_org_id, ORGANIZATIONS[match_org_id])
 
-        # Deduct from corresponding donor resource request listings
+        # Deduct from corresponding donor resource request listings and attach needer destination
         deduct_needed = take
         for r_id, res_req in list(REQUESTS.items()):
             if (res_req.get("type") == "resource" and 
@@ -1276,6 +1276,12 @@ async def run_need_pipeline(request_id: str):
                 if cur_qty > 0:
                     dec = min(deduct_needed, cur_qty)
                     res_req["quantity"] = cur_qty - dec
+                    res_req["needer_org_id"] = rec.get("organization_id")
+                    res_req["needer_location_code"] = rec.get("location_code")
+                    res_req["needer_location_name"] = location_label
+                    res_req["needer_latitude"] = need_lat
+                    res_req["needer_longitude"] = need_lng
+                    res_req["distance_km"] = match.get("distance_km", 0.0)
                     deduct_needed -= dec
                     if res_req["quantity"] == 0:
                         res_req["availability"] = "unavailable"
@@ -1301,8 +1307,10 @@ async def run_need_pipeline(request_id: str):
 
     plan = {
         "plan_id": next_plan_id(), "request_id": request_id,
+        "needer_org_id": rec.get("organization_id"),
         "resource": resource_name, "resource_code": resource_code,
         "location_code": rec.get("location_code"), "location_name": location_label,
+        "latitude": need_lat, "longitude": need_lng,
         "required_quantity": quantity, "allocated_quantity": allocated_quantity,
         "allocations": allocations, "priority": rec.get("urgency"),
         "distance_km": nearest_dist,

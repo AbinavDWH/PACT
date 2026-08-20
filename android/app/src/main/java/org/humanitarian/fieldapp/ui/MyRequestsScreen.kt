@@ -1,5 +1,7 @@
 package org.humanitarian.fieldapp.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -407,7 +409,7 @@ private fun LocalRequestCard(
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
                                 text = if (isLowUrgency)
-                                    "🤖 AI Urgency Assessment: Low · Held in WAITING state to conserve cellular SMS quota. Updates sync via Internet only."
+                                    "AI Urgency Assessment: Low · Held in WAITING state to conserve cellular SMS quota. Updates sync via Internet only."
                                 else
                                     "Transmitted via SMS to Gateway (7401231450). Awaiting confirmation reply SMS.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -551,6 +553,7 @@ private fun ServerRequestCard(
     onConfirmHandover: (String?, String?) -> Unit,
     onConfirmReceipt: (String?, String?) -> Unit
 ) {
+    val context = LocalContext.current
     val statusColor = getDisplayColor(req.status)
     val isHandedOver = req.status.equals("in_transit", ignoreCase = true) ||
                        req.status.equals("dispatched", ignoreCase = true) ||
@@ -676,6 +679,111 @@ private fun ServerRequestCard(
                             fontWeight = FontWeight.Medium,
                             color = PactTextPrimary
                         )
+                    }
+                }
+            }
+
+            // NEEDER LOCATION & NAVIGATION (FOR DONOR DISPATCH)
+            if (isDonor && (req.neederLocationCode != null || req.neederLocationName != null || req.neederLatitude != null || req.planId != null)) {
+                val neederLoc = req.neederLocationName ?: req.neederLocationCode ?: req.locationName ?: req.locationCode ?: "Region A (Marina)"
+                val neederLat = req.neederLatitude ?: req.latitude ?: 13.0499
+                val neederLng = req.neederLongitude ?: req.longitude ?: 80.2824
+                val neederOrg = req.neederOrgId ?: "Relief Recipient"
+                val distKm = req.distanceKm ?: 2.4
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFFFF9F0),
+                    border = BorderStroke(1.dp, PactAccent)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "NEEDER DESTINATION",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = PactPrimary
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFFFEBEE)
+                            ) {
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%.1f km away", distKm),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PactPrimary
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Recipient: $neederOrg · $neederLoc",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = PactTextPrimary
+                        )
+
+                        Text(
+                            text = String.format(java.util.Locale.US, "GPS: %.4f° N, %.4f° E", neederLat, neederLng),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = PactTextSecondary
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    val uri = Uri.parse("geo:$neederLat,$neederLng?q=$neederLat,$neederLng(Needer:+$neederLoc)")
+                                    val mapIntent = Intent(Intent.ACTION_VIEW, uri)
+                                    try {
+                                        context.startActivity(mapIntent)
+                                    } catch (e: Exception) {
+                                        val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$neederLat,$neederLng")
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, PactPrimary)
+                            ) {
+                                Text("Open in Maps", style = MaterialTheme.typography.labelSmall, color = PactPrimary, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = {
+                                    val shareBody = "ResiLink Aid Dispatch\n" +
+                                            "Plan: ${req.planId ?: req.id}\n" +
+                                            "Resource: ${req.quantity} x ${req.resource}\n" +
+                                            "Needer: $neederOrg\n" +
+                                            "Destination: $neederLoc\n" +
+                                            String.format(java.util.Locale.US, "GPS: %.6f, %.6f\n", neederLat, neederLng) +
+                                            "Maps Link: https://maps.google.com/?q=$neederLat,$neederLng\n" +
+                                            String.format(java.util.Locale.US, "Nearest Route: %.1f km", distKm)
+
+                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, "Aid Dispatch Location: $neederLoc")
+                                        putExtra(Intent.EXTRA_TEXT, shareBody)
+                                    }
+                                    context.startActivity(Intent.createChooser(sendIntent, "Share Needer Location"))
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = PactPrimary, contentColor = Color.White)
+                            ) {
+                                Text("Share Location", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }

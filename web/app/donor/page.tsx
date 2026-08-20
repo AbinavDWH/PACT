@@ -584,6 +584,31 @@ export default function DonorPage() {
                           </span>
                         )}
                       </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.location_name || p.location_code || "Chennai")}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg border border-[#e3c9a8] bg-[#FFF2DB] px-2.5 py-1 text-[11px] font-bold text-[#7c4a12] transition hover:bg-[#FFE5BF]"
+                        >
+                          Open Destination in Maps
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const txt = `ResiLink Aid Dispatch: Plan ${p.plan_id} -> Deliver ${myTotalQty} x ${p.resource} to ${p.location_name || p.location_code}. Nearest distance: ${p.distance_km ?? "?"} km.`;
+                            if (navigator.share) {
+                              navigator.share({ title: `Dispatch ${p.plan_id}`, text: txt });
+                            } else {
+                              navigator.clipboard.writeText(txt);
+                              alert("Needer destination details copied to clipboard!");
+                            }
+                          }}
+                          className="rounded-lg border border-[#e3c9a8] bg-white px-2.5 py-1 text-[11px] font-bold text-[#7c4a12] transition hover:bg-[#FFF2DB]"
+                        >
+                          Share Needer Location
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">
