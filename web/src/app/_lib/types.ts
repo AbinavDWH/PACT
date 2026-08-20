@@ -1,5 +1,6 @@
-// Wire types. Mirrors agents.md section 3.1 / 3.2 exactly -- when the real
-// agents replace the scripted pipeline, nothing here changes.
+// Wire types. Mirrors agents.md section 3.1 / 3.2 exactly. The event contract
+// is what decouples this client from the pipeline: the agents behind it are the
+// live Groq ones, and nothing here would change if they were swapped again.
 
 export type AgentId =
   | "system" | "a0_intake" | "a1_dedupe" | "a2_triage" | "a3_geo" | "a4_advocates"
@@ -122,9 +123,6 @@ export interface Run {
 
   errors: { agent: string; code: string; fallback_used?: boolean }[];
 
-  // False means $geoNear returned nothing and the run used hardcoded
-  // fixtures. The pipeline continues either way, so without surfacing it an
-  // operator cannot tell that the one real database query stopped running.
   // Positions for the map panel. Whatever the stream carried: the admin
   // audience receives exact coordinates by policy, and every other audience is
   // redacted server-side before reaching any client.
@@ -135,6 +133,9 @@ export interface Run {
     distance_km?: number; eta_minutes?: number;
   }[];
 
+  // False means $geoNear returned nothing and the run used hardcoded fixtures.
+  // The pipeline continues either way, so without surfacing it an operator
+  // cannot tell that the one real database query stopped returning rows.
   geoLive?: boolean;
   cluster?: { duplicate: boolean; size: number };
   llmAgents?: Record<string, boolean>;

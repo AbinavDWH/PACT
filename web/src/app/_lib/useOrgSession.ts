@@ -2,12 +2,17 @@
 
 // Organization session.
 //
-// Unlike the admin portal, this one does NOT log in silently with baked-in
+// Unlike the admin console, this one does NOT sign in with baked-in
 // credentials: which organization you are is the whole point of the screen, and
 // the boundary being demonstrated is that an org sees only its own slice. A
 // real login is the demonstration.
+//
+// The session lives in sessionStorage, which is an external store, so it is
+// read through useSyncExternalStore rather than copied into state by a mount
+// effect. The effect version worked but wrote state during mount on every load,
+// and it meant two sources of truth for the same value.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { API_BASE } from "./useAgentSocket";
 
 const KEY = "pact.org.session";
@@ -19,14 +24,65 @@ export interface OrgSession {
   group_code: string;
 }
 
-export function loadOrgSession(): OrgSession | null {
-  if (typeof window === "undefined") return null;
+// ---------------------------------------------------------------------------
+// The store
+// ---------------------------------------------------------------------------
+
+const listeners = new Set<() => void>();
+
+function emit() {
+  for (const l of listeners) l();
+}
+
+function subscribe(cb: () => void): () => void {
+  listeners.add(cb);
+  // Another tab signing in or out is a real event worth following: the two
+  // tabs share sessionStorage per-tab, but `storage` still fires for same-key
+  // writes in some browsers and costs nothing to listen for.
+  window.addEventListener("storage", cb);
+  return () => {
+    listeners.delete(cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+
+function readRaw(): string | null {
   try {
-    const raw = window.sessionStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as OrgSession) : null;
+    return window.sessionStorage.getItem(KEY);
   } catch {
     return null;
   }
+}
+
+// getSnapshot must return a referentially stable value or React re-renders
+// forever, so the parsed object is cached against the raw string it came from.
+let cachedRaw: string | null = null;
+let cached: OrgSession | null = null;
+let primed = false;
+
+function getSnapshot(): OrgSession | null {
+  const raw = readRaw();
+  if (!primed || raw !== cachedRaw) {
+    primed = true;
+    cachedRaw = raw;
+    try {
+      cached = raw ? (JSON.parse(raw) as OrgSession) : null;
+    } catch {
+      cached = null;
+    }
+  }
+  return cached;
+}
+
+// There is no session on the server, and none during hydration.
+function getServerSnapshot(): OrgSession | null {
+  return null;
+}
+
+/** Read outside React (the fetch helper below needs it too). */
+export function loadOrgSession(): OrgSession | null {
+  if (typeof window === "undefined") return null;
+  return getSnapshot();
 }
 
 export async function orgFetch(path: string, session: OrgSession | null,
@@ -41,14 +97,16 @@ export async function orgFetch(path: string, session: OrgSession | null,
   });
 }
 
-export function useOrgSession() {
-  const [session, setSession] = useState<OrgSession | null>(null);
-  const [ready, setReady] = useState(false);
+// `ready` exists so the login form does not flash before storage has been
+// consulted. Derived from hydration through the same mechanism -- false on the
+// server, true on the client -- rather than from a mount effect setting state.
+const noopSubscribe = () => () => {};
+const alwaysTrue = () => true;
+const alwaysFalse = () => false;
 
-  useEffect(() => {
-    setSession(loadOrgSession());
-    setReady(true);
-  }, []);
+export function useOrgSession() {
+  const session = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const ready = useSyncExternalStore(noopSubscribe, alwaysTrue, alwaysFalse);
 
   const login = useCallback(async (username: string, password: string) => {
     const res = await fetch(`${API_BASE}/api/v1/org/login`, {
@@ -69,13 +127,13 @@ export function useOrgSession() {
       group_code: j.group_code ?? "",
     };
     window.sessionStorage.setItem(KEY, JSON.stringify(s));
-    setSession(s);
+    emit();
     return { ok: true as const };
   }, []);
 
   const logout = useCallback(() => {
     window.sessionStorage.removeItem(KEY);
-    setSession(null);
+    emit();
   }, []);
 
   return { session, ready, login, logout };

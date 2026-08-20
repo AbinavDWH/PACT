@@ -1,0 +1,335 @@
+/* Landing page.
+ *
+ * The one surface in this product aimed at someone who has never seen it.
+ * Everything else is a console tuned for density; this is tuned for
+ * comprehension, so the spacing is looser than the dashboard scale and the
+ * measure is capped for readability.
+ *
+ * Colours, radii and motion all come from the tokens in globals.css.
+ */
+
+.lp {
+  min-height: 100vh;
+  background: var(--grad-hero), var(--bg);
+  background-repeat: no-repeat;
+}
+
+/* --- nav ---------------------------------------------------------------- */
+
+.lpNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  max-width: var(--content);
+  margin: 0 auto;
+  padding: var(--space-5) var(--gutter);
+}
+
+.lpMark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  font-size: 1.05rem;
+}
+.lpMarkDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--det);
+  box-shadow: 0 0 10px var(--det);
+}
+
+.lpNavLinks { display: flex; align-items: center; gap: var(--space-2); }
+
+.lpNavLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-sm);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+              background var(--dur) var(--ease);
+}
+.lpNavLink:hover { color: var(--ink); border-color: var(--line); }
+.lpNavLinkStrong {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--panel);
+}
+.lpNavLinkStrong:hover { border-color: var(--llm); }
+
+/* --- hero --------------------------------------------------------------- */
+
+.lpHero {
+  max-width: var(--content);
+  margin: 0 auto;
+  padding: clamp(2rem, 7vw, 5rem) var(--gutter) clamp(2.5rem, 6vw, 4rem);
+}
+
+.lpEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: 0.3rem var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 0.78rem;
+}
+
+.lpPulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--det);
+  animation: lpPulse 2.4s var(--ease) infinite;
+}
+@keyframes lpPulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--det) 60%, transparent); }
+  70%  { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.lpTitle {
+  margin: 0 0 var(--space-4);
+  /* Fluid rather than fixed: this headline is the first thing read on a 375px
+     phone and on a projector. */
+  font-size: clamp(2.1rem, 5.6vw, 3.9rem);
+  line-height: 1.06;
+  letter-spacing: -0.025em;
+  font-weight: 700;
+  max-width: 20ch;
+}
+.lpTitleAccent {
+  background: linear-gradient(100deg, var(--llm), var(--det));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lpLede {
+  margin: 0 0 var(--space-5);
+  max-width: 64ch;
+  font-size: clamp(1rem, 1.5vw, 1.15rem);
+  line-height: 1.7;
+  color: var(--dim);
+}
+
+.lpCtas { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+
+.lpBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--hit);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+              filter var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.lpBtnPrimary {
+  background: var(--llm);
+  color: var(--on-accent);
+  box-shadow: var(--glow-llm);
+}
+.lpBtnPrimary:hover { transform: translateY(-1px); filter: brightness(1.07); }
+.lpBtnGhost {
+  border-color: var(--line-strong);
+  color: var(--ink);
+  background: var(--panel);
+}
+.lpBtnGhost:hover { border-color: var(--llm); transform: translateY(-1px); }
+
+/* --- proof strip -------------------------------------------------------- */
+
+.lpProof {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-4);
+  margin: clamp(2.5rem, 6vw, 4rem) 0 0;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line);
+}
+.lpProofItem { min-width: 0; }
+.lpProofK {
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.lpProofU {
+  font-family: var(--font-sans, ui-sans-serif), sans-serif;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--llm);
+  margin-left: 0.15rem;
+}
+.lpProofD {
+  margin: var(--space-1) 0 0;
+  font-size: 0.85rem;
+  color: var(--faint);
+  line-height: 1.55;
+}
+
+/* --- sections ----------------------------------------------------------- */
+
+.lpSection {
+  max-width: var(--content);
+  margin: 0 auto;
+  padding: clamp(2.5rem, 7vw, 4.5rem) var(--gutter);
+}
+
+.lpH2 {
+  margin: 0 0 var(--space-5);
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  letter-spacing: -0.015em;
+  font-weight: 650;
+}
+.lpBody { margin: 0; max-width: 60ch; color: var(--dim); line-height: 1.75; }
+
+/* --- steps -------------------------------------------------------------- */
+
+.lpSteps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+.lpStep {
+  position: relative;
+  padding: var(--space-5) var(--space-4) var(--space-4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.lpStep:hover { border-color: var(--line-strong); transform: translateY(-2px); }
+.lpStepN {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-4);
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.8rem;
+  color: var(--llm);
+  opacity: 0.75;
+}
+.lpStepT { margin: 0 0 var(--space-2); font-size: 1.02rem; font-weight: 600; }
+.lpStepB { margin: 0; font-size: 0.9rem; line-height: 1.65; color: var(--dim); }
+
+/* --- privacy boundary --------------------------------------------------- */
+
+.lpSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: start;
+}
+.lpBoundary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--space-4);
+}
+.lpBoundaryCol {
+  padding: var(--space-4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+.lpTag {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+  padding: 0.15rem var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.lpTagShared { background: var(--det-fill); color: var(--good); }
+.lpTagHeld { background: var(--bad-fill); color: var(--bad); }
+.lpList {
+  margin: 0;
+  padding-left: 1.05rem;
+  color: var(--dim);
+  font-size: 0.9rem;
+  line-height: 1.85;
+}
+
+/* --- doors -------------------------------------------------------------- */
+
+.lpDoorGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+.lpDoor {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease);
+}
+.lpDoor:hover {
+  border-color: var(--llm);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+}
+.lpDoorTag {
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--llm);
+  font-weight: 600;
+}
+.lpDoorT { margin: var(--space-2) 0; font-size: 1.25rem; font-weight: 650; }
+.lpDoorB {
+  margin: 0 0 var(--space-4);
+  color: var(--dim);
+  font-size: 0.92rem;
+  line-height: 1.7;
+  flex: 1;
+}
+.lpDoorGo { color: var(--llm); font-weight: 600; font-size: 0.9rem; }
+
+/* --- footer ------------------------------------------------------------- */
+
+.lpFoot {
+  max-width: var(--content);
+  margin: 0 auto;
+  padding: var(--space-5) var(--gutter) var(--space-6);
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 0.82rem;
+}
+
+/* --- responsive --------------------------------------------------------- */
+
+@media (max-width: 860px) {
+  .lpSplit { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .lpNav { flex-wrap: wrap; gap: var(--space-3); }
+  .lpCtas .lpBtn { flex: 1 1 100%; justify-content: center; }
+  .lpTitle { max-width: none; }
+}

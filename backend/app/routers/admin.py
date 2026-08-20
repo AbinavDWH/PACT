@@ -1,7 +1,7 @@
 """Admin portal endpoints.
 
-Step 1 scope: enough to drive the scripted pipeline and the approve/override
-bar. Mongo-backed listing lands with the persistence layer.
+Drives the live agent pipeline, the approve/override bar, the persisted request
+list and the seed/inventory reads the portal uses to stay off hardcoded values.
 """
 
 from __future__ import annotations
@@ -28,7 +28,8 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"],
 # /login must stay open, so it lives on its own unprotected router.
 public = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
-# In-memory run log until Mongo is wired.
+# In-memory run log for /stats. The durable record is the event transcript
+# in Mongo, read back via /requests.
 _runs: list[dict[str, Any]] = []
 
 
@@ -46,10 +47,21 @@ class DecisionAction(BaseModel):
 
 
 class SimulateRequest(BaseModel):
+    """A request injected by the admin portal.
+
+    lat/lon are optional but matter: without them the pipeline falls back to
+    DEFAULT_LAT/LON in the agent module, which is Bhopal. A database seeded
+    anywhere else then puts every offer outside the 150 km radius ladder, so
+    `$geoNear` returns nothing and the run silently uses hardcoded fixtures
+    (`geo_live: false`). The portal reads GET /admin/seed and sends the real
+    seeded centre, so the one real database query actually runs.
+    """
     need: str = "medical_kits"
     quantity: int = Field(default=3, gt=0)
-    location_name: str = "Region A"
+    location_name: str | None = None
     urgency: str = "critical"
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
 
 
 @public.post("/login")
@@ -73,17 +85,35 @@ def decision_action(decision_id: str, payload: DecisionAction):
 
 @router.post("/simulate")
 async def simulate(payload: SimulateRequest):
-    """Fire one scripted deliberation. This is the demo trigger until the real
-    ingest path lands."""
-    request = {
+    """Inject one request and run the full pipeline on it.
+
+    Same `scripted.run` the codec/SMS path uses -- the module name is historical,
+    the agents behind it are the live Groq ones. Only the input differs: this
+    endpoint takes a need and a position directly instead of decoding them from
+    a codec string.
+    """
+    centre = await db_seed.seeded_centre()
+    lat = payload.lat if payload.lat is not None else (centre[0] if centre else None)
+    lon = payload.lon if payload.lon is not None else (centre[1] if centre else None)
+
+    request: dict[str, Any] = {
         "request_id": f"REQ-{uuid4().hex[:6].upper()}",
         "need": payload.need,
         "quantity": payload.quantity,
-        "location_name": payload.location_name,
+        # Matches the wording the codec/SMS path uses for an unnamed
+        # position, so the two entry points do not produce differently
+        # phrased summaries for the same kind of request.
+        "location_name": payload.location_name or "reported position",
         "urgency": payload.urgency,
     }
+    # Only set when known. A null lat would be cast to float downstream.
+    if lat is not None and lon is not None:
+        request["lat"] = lat
+        request["lon"] = lon
+
     asyncio.create_task(_run_and_record(request))
-    return {"status": "accepted", "trace_id": request["request_id"]}
+    return {"status": "accepted", "trace_id": request["request_id"],
+            "lat": lat, "lon": lon}
 
 
 async def _run_and_record(request: dict[str, Any]) -> None:
@@ -139,6 +169,31 @@ async def seed_info():
             "default": {"lat": db_seed.default_centre()[0],
                         "lon": db_seed.default_centre()[1]},
             "radius_ladder_km": repo_offers.RADIUS_LADDER_KM}
+
+
+@router.get("/inventory")
+async def inventory():
+    """What is actually in stock, by resource.
+
+    The portal used to hardcode five resource names, three of which happened to
+    match the seed. Selecting one of the others produced zero candidates and a
+    fixture-backed run, which looks identical to a real one.
+    """
+    db = mongo.get_db()
+    if db is None or not mongo.is_healthy():
+        return {"resources": [], "source": "unavailable"}
+    rows = await db.offers.aggregate([
+        {"$match": {"available": {"$gt": 0}}},
+        {"$group": {"_id": "$resource",
+                    "available": {"$sum": "$available"},
+                    "offers": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]).to_list(length=100)
+    return {
+        "resources": [{"resource": r["_id"], "available": r["available"],
+                       "offers": r["offers"]} for r in rows],
+        "source": "mongo",
+    }
 
 
 @router.get("/requests")

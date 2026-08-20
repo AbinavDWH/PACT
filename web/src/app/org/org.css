@@ -1,98 +1,199 @@
-/* Organization portal. Inherits the admin palette from admin.css so the two
-   read as one product; only the org-specific pieces live here. */
+/* Organization portal. Inherits the console palette from admin.css so the two
+   read as one product; only the org-specific pieces live here. All colours and
+   spacing come from the tokens in globals.css. */
 
 .orgLoginWrap {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  padding: var(--space-4);
 }
 
 .orgLogin {
-  width: min(420px, 92vw);
+  width: min(420px, 100%);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 1.6rem 1.5rem;
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: var(--space-3);
 }
-.orgLogin .brand { margin-bottom: 0.2rem; }
-.orgLoginHint { color: var(--dim); font-size: 0.82rem; margin: 0 0 0.4rem; }
+.orgLogin .brand { margin-bottom: var(--space-1); }
+.orgLoginHint {
+  color: var(--dim);
+  font-size: 0.82rem;
+  margin: 0 0 var(--space-1);
+  line-height: 1.6;
+}
 .orgLogin label {
-  display: flex; flex-direction: column; gap: 0.3rem;
-  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   color: var(--dim);
 }
 .orgLogin input {
-  background: var(--panel2); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 6px;
-  padding: 0.55rem 0.7rem; font-size: 0.9rem;
+  background: var(--panel2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  /* The login is the one form likely to be filled on a phone, so these get the
+     full touch target rather than the dense console height. */
+  min-height: var(--hit);
+  padding: 0 var(--space-3);
+  font-size: 0.95rem;
+  transition: border-color var(--dur) var(--ease);
 }
+.orgLogin input:hover { border-color: var(--line-strong); }
 .orgLogin button {
-  margin-top: 0.4rem; background: var(--llm); color: #0b0f14;
-  border: 0; border-radius: 6px; padding: 0.6rem 1rem;
-  font-weight: 600; font-size: 0.88rem; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  background: var(--llm);
+  color: var(--on-accent);
+  border: 0;
+  border-radius: var(--radius);
+  min-height: var(--hit);
+  padding: 0 var(--space-4);
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: filter var(--dur) var(--ease);
 }
-.orgLogin button:disabled { opacity: 0.5; cursor: not-allowed; }
+.orgLogin button:hover:not(:disabled) { filter: brightness(1.1); }
+.orgLogin button:disabled { opacity: 0.5; }
+
 .orgError {
-  color: var(--bad); font-size: 0.8rem;
-  border: 1px solid rgba(255, 107, 107, 0.4);
-  border-radius: 6px; padding: 0.4rem 0.6rem;
+  color: var(--bad);
+  font-size: 0.82rem;
+  border: 1px solid color-mix(in srgb, var(--bad) 42%, transparent);
+  background: var(--bad-fill);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
 }
-.orgSeeds { color: #5d7086; font-size: 0.72rem; }
-.orgSeeds code { color: var(--dim); }
 
 /* The boundary statement. This is the point of the screen, so it sits above
    the content rather than in a footnote. */
 .orgBoundary {
-  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
-  margin: 1rem 1.5rem 0; padding: 0.7rem 0.9rem;
-  border: 1px dashed var(--line); border-radius: 8px;
-  font-size: 0.78rem; color: var(--dim); line-height: 1.6;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: var(--space-4) var(--gutter) 0;
+  padding: var(--space-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  font-size: 0.78rem;
+  color: var(--dim);
+  line-height: 1.65;
 }
 
 .groupCode {
-  font-family: ui-monospace, monospace; font-size: 0.78rem;
-  background: var(--panel2); border: 1px solid var(--line);
-  border-radius: 6px; padding: 0.2rem 0.5rem; color: var(--llm);
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.78rem;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.2rem var(--space-2);
+  color: var(--llm);
 }
 
 .orgNote {
-  margin: 0.8rem 1.5rem 0; padding: 0.5rem 0.8rem;
-  border: 1px solid rgba(78, 201, 168, 0.4); border-radius: 6px;
-  background: rgba(78, 201, 168, 0.08); color: var(--good);
+  margin: var(--space-3) var(--gutter) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--good) 42%, transparent);
+  border-radius: var(--radius);
+  background: var(--det-fill);
+  color: var(--good);
   font-size: 0.82rem;
 }
 
+/* A dropped poll keeps the last-known data on screen; this says so rather than
+   letting stale rows read as current. */
+.orgStale {
+  margin: var(--space-3) var(--gutter) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--warn) 42%, transparent);
+  border-radius: var(--radius);
+  background: var(--warn-fill);
+  color: var(--warn);
+  font-size: 0.8rem;
+}
+
 .orgWhy {
-  margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--ink);
-  border-left: 2px solid var(--llm); padding-left: 0.6rem;
+  margin: var(--space-2) 0 0;
+  font-size: 0.85rem;
+  color: var(--ink);
+  border-left: 2px solid var(--llm);
+  padding-left: var(--space-3);
 }
 
 .orgSeeker {
-  margin-top: 0.6rem; font-size: 0.8rem; color: var(--dim);
-  display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  margin-top: var(--space-2);
+  font-size: 0.8rem;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
 }
 
-.orgAssign { margin-top: 0.7rem; align-items: center; }
+.orgAssign { margin-top: var(--space-3); align-items: center; }
 .orgAssign select {
-  background: var(--panel2); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 6px;
-  padding: 0.4rem 0.6rem; font-size: 0.82rem;
+  background: var(--panel2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  min-height: var(--hit);
+  padding: 0 var(--space-3);
+  font-size: 0.85rem;
 }
 
-/* The nav items are buttons here rather than links. */
-.nav button.navItem {
-  background: transparent; font-family: inherit; cursor: pointer;
-}
-.nav button.navItem.active {
-  color: var(--ink); background: var(--panel2); border-color: var(--line);
+/* The nav items are buttons here rather than links; the base .navItem rule in
+   admin.css already resets the button UA styles, so only the selected state
+   needs restating for the aria-selected tabs. */
+.nav button.navItem.active,
+.nav button.navItem[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--panel2);
+  border-color: var(--line);
 }
 
 .orgUrgency {
-  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--warn); border: 1px solid rgba(255, 180, 84, 0.35);
-  border-radius: 4px; padding: 0.05rem 0.35rem;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0.08rem 0.35rem;
 }
+
+@media (max-width: 480px) {
+  .orgAssign select, .orgAssign button { flex: 1 1 100%; }
+}
+
+/* The brand is a link home on both org screens; strip anchor styling and give
+   the login card's copy a visible hover, since it is the only navigation on
+   that screen. */
+.topbar .brand,
+.orgLoginBrand {
+  text-decoration: none;
+  color: inherit;
+}
+.orgLoginBrand { display: inline-flex; align-items: baseline; gap: 0.5rem; }
+.orgLoginBrand:hover .sub { color: var(--ink); }
+
+/* Match the console: the login card sits on the same aurora as the landing
+   page rather than a flat panel on a flat page. */
+.orgLoginWrap {
+  background: var(--grad-hero), var(--bg);
+  background-repeat: no-repeat;
+}
+.orgLogin { box-shadow: var(--shadow-lg); }

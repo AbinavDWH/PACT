@@ -1,0 +1,65 @@
+/* Map section. Shares the console palette; only the two-column shell and the
+   fact strip are local. */
+
+/* NOT `.mapWrap` -- MapPanel already uses that class for its own canvas box,
+   and a page-level grid under the same name laid the canvas out as a 300px
+   sidebar column. */
+.mapLayout {
+  display: grid;
+  grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-4) var(--gutter) var(--space-6);
+  align-items: start;
+}
+
+.mapSide { min-width: 0; }
+.mapSide .sectionTitle { margin-left: 0; margin-right: 0; }
+
+.mapList { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+
+.mapListItem {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: inherit;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.mapListItem:hover { border-color: var(--line-strong); background: var(--panel2); }
+.mapListItem.active { border-color: var(--llm); background: var(--panel2); }
+
+.mapListSummary {
+  font-size: 0.85rem;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mapListItem .badge { justify-self: start; }
+
+.mapMain { min-width: 0; }
+
+.mapFacts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.mapFact {
+  padding: var(--space-3);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.mapFactK { display: block; font-size: 1.2rem; font-weight: 600; }
+.mapFactK.mono { font-family: var(--font-mono, ui-monospace), monospace; font-size: 1rem; }
+.mapFactL { display: block; margin-top: 0.15rem; font-size: 0.8rem; color: var(--faint); line-height: 1.5; }
+.warnText { color: var(--warn); }
+
+@media (max-width: 900px) {
+  .mapLayout { grid-template-columns: 1fr; }
+}

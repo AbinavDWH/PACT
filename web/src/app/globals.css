@@ -1,5 +1,155 @@
-:root { --ink: #19242a; --paper: #edf2ed; }
+/* Global reset + the single source of design tokens.
+ *
+ * These used to be a stray light-mode pair (--paper/--ink) that nothing
+ * consumed: admin.css redefined --ink and painted its own background, so the
+ * only visible effect was a pale green flash before the dark UI mounted. The
+ * tokens now live here once and every surface reads them.
+ *
+ * Density is deliberately high -- this is an operations console where an
+ * operator wants many concurrent runs on one screen, not a marketing page. */
+
+:root {
+  /* --- surfaces (dark is primary; see note at the bottom) --- */
+  --bg: #0b0f14;
+  --panel: #121820;
+  --panel2: #171f2a;
+  --panel3: #1d2634;
+  --line: #223041;
+  --line-strong: #2e405673;
+
+  /* --- text ---
+   * --faint was #5d7086, which measures 3.5:1 on --panel: below the 4.5:1
+   * floor, on the hint and metadata text that explains what the console is
+   * doing. Raised to 5.3:1. --fg was referenced in five rules and never
+   * defined anywhere, so those colours silently inherited. */
+  --ink: #e6edf6;
+  --fg: #e6edf6;
+  --dim: #8fa3b8;
+  --faint: #7a8da6;
+
+  /* --- semantic accents --- */
+  --llm: #7aa2ff;
+  --det: #4ec9a8;
+  --warn: #ffb454;
+  --bad: #ff6b6b;
+  --good: #4ec9a8;
+  --on-accent: #08111a;
+
+  /* Tinted fills, derived from the accents above rather than re-typed as
+     one-off rgba() literals at each use site. */
+  --llm-fill: rgba(122, 162, 255, 0.14);
+  --det-fill: rgba(78, 201, 168, 0.14);
+  --warn-fill: rgba(255, 180, 84, 0.14);
+  --bad-fill: rgba(255, 107, 107, 0.14);
+
+  /* --- dense spacing scale (8-32px) --- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  /* --- motion --- */
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 44px is the touch floor. Dense desktop controls sit at --hit-sm and are
+     bumped to --hit on coarse pointers rather than shipping one size that is
+     either unreachable on a tablet or wasteful on a monitor. */
+  --hit: 44px;
+  --hit-sm: 32px;
+
+  /* --- type ---
+   * Fira Sans for labels and prose, Fira Code for anything the system
+   * generated: codec strings, coordinates, IDs, checksums. One family, so the
+   * two read as siblings rather than a collision. Self-hosted (public/fonts)
+   * because the venue network is assumed to fail. */
+  --font-sans: "Fira Sans";
+  --font-mono: "Fira Code";
+
+  /* --- depth ---
+   * A flat dark UI reads as one undifferentiated sheet. These lift the
+   * surfaces that carry decisions above the ones that carry context. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.28);
+  --shadow: 0 4px 16px -4px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 18px 48px -12px rgb(0 0 0 / 0.6);
+  --glow-llm: 0 0 0 1px color-mix(in srgb, var(--llm) 34%, transparent),
+              0 8px 32px -10px color-mix(in srgb, var(--llm) 46%, transparent);
+
+  /* Reads as one aurora across hero and header rather than a flat fill. */
+  --grad-hero:
+    radial-gradient(78rem 42rem at 12% -12%, color-mix(in srgb, var(--llm) 16%, transparent), transparent 62%),
+    radial-gradient(58rem 34rem at 96% 4%, color-mix(in srgb, var(--det) 13%, transparent), transparent 58%);
+
+  --content: 1180px;
+  --gutter: clamp(1rem, 4vw, 2.5rem);
+
+  color-scheme: dark;
+}
+
 * { box-sizing: border-box; }
+
 html, body { margin: 0; min-height: 100%; }
-body { background: var(--paper); color: var(--ink); font-family: Arial, Helvetica, sans-serif; }
-button, input, select { font: inherit; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.6 var(--font-sans, ui-sans-serif), system-ui, -apple-system,
+        "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+/* One focus treatment for the whole app. Nothing here removes an outline
+   without replacing it -- keyboard operation of the approve/override bar is
+   the one path that must never become invisible. */
+:focus-visible {
+  outline: 2px solid var(--llm);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+:focus:not(:focus-visible) { outline: none; }
+
+/* Visible to a screen reader, not on screen. Used for real form labels where
+   the surrounding heading already carries the name visually -- the alternative
+   was a placeholder doing a label's job. */
+.srOnly {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+code, kbd, samp, pre {
+  font-family: var(--font-mono, ui-monospace), ui-monospace, monospace;
+}
+
+/* Respect the OS setting rather than animating regardless. The blinking
+   token caret in particular is a sustained animation next to text being
+   read. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* This console is dark-only by design: it is used in field/low-light
+   conditions alongside a dark map, and a half-finished light theme reads worse
+   than a committed dark one. Declared explicitly so a light-preference browser
+   still gets the intended surface instead of borrowing its own. */

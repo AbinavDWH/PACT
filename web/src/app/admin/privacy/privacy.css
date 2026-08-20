@@ -1,0 +1,122 @@
+/* Privacy section. The three-column board is the point of the screen: shared,
+   masked and withheld sit side by side so the distinction is visible rather
+   than described. */
+
+.privStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-4) var(--gutter) 0;
+}
+.privStat {
+  padding: var(--space-4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.privStatK {
+  display: block;
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 1.65rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+.privStatL {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 0.82rem;
+  color: var(--faint);
+  line-height: 1.55;
+}
+
+.privBoard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-4) var(--gutter) 0;
+}
+.privCol {
+  padding: var(--space-4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.privList {
+  margin: var(--space-3) 0 0;
+  padding-left: 1.05rem;
+  font-size: 0.88rem;
+  line-height: 1.8;
+  color: var(--dim);
+}
+.privList:empty::after {
+  content: "nothing in this bucket on the latest run";
+  color: var(--faint);
+  font-style: italic;
+}
+.privNote {
+  margin: var(--space-3) 0 0;
+  font-size: 0.78rem;
+  color: var(--faint);
+  line-height: 1.6;
+}
+.privNoteWide { padding: 0 var(--gutter); max-width: 72ch; }
+
+.privBars {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--gutter);
+  display: grid;
+  gap: var(--space-2);
+}
+.privBar {
+  display: grid;
+  grid-template-columns: minmax(120px, 190px) 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+.privBarL { font-size: 0.85rem; color: var(--dim); }
+.privBarTrack {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.privBarFill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--llm), var(--det));
+  border-radius: var(--radius-pill);
+}
+.privBarN {
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.82rem;
+  color: var(--ink);
+  min-width: 2.5ch;
+  text-align: right;
+}
+
+.privChips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 var(--gutter);
+}
+.privChip {
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.76rem;
+  padding: 0.2rem var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--bad-fill);
+  color: var(--bad);
+  border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
+}
+
+@media (max-width: 620px) {
+  .privBar { grid-template-columns: 1fr auto; }
+  .privBarTrack { grid-column: 1 / -1; }
+}

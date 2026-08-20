@@ -110,7 +110,17 @@ export default function MapPanel({ points, height = 320 }: {
     });
     map.current.addControl(new maplibregl.NavigationControl({ showCompass: false }),
                            "top-right");
+
+    // MapLibre sizes its WebGL canvas once, at construction. Inside a run card
+    // the container is already at its final width by then; on the map section
+    // the CSS grid resolves after mount, so the canvas stayed at its initial
+    // width and painted tiles across only part of a much wider box -- the
+    // controls and attribution moved with the container, the map did not.
+    const ro = new ResizeObserver(() => map.current?.resize());
+    ro.observe(container.current);
+
     return () => {
+      ro.disconnect();
       map.current?.remove();
       map.current = null;
     };
@@ -185,15 +195,39 @@ export default function MapPanel({ points, height = 320 }: {
     else m.once("load", draw);
   }, [points]);
 
+  const kinds = new Set(points.map((p) => p.kind));
+
   return (
-    <div className="mapWrap" style={{ height }}>
-      <div ref={container} className="mapCanvas" />
-      {points.length === 0 && (
-        <div className="mapEmpty">No positioned events yet</div>
+    <div className="mapBlock">
+      <div className="mapWrap" style={{ height }}>
+        <div ref={container} className="mapCanvas" />
+        {points.length === 0 && (
+          <div className="mapEmpty">No positioned events yet</div>
+        )}
+      </div>
+      {/* Three marker colours had no key at all, which made the map rely on
+          colour alone to say which pin is the seeker and which was actually
+          committed. Only the kinds present are listed, so it does not promise
+          an "allocated" pin before one exists. */}
+      {points.length > 0 && (
+        <div className="mapLegend">
+          {LEGEND.filter(([kind]) => kinds.has(kind)).map(([kind, label]) => (
+            <span key={kind}>
+              <i style={{ background: COLOURS[kind] }} aria-hidden="true" />
+              {label}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );
 }
+
+const LEGEND: [MapPoint["kind"], string][] = [
+  ["request", "requester"],
+  ["candidate", "candidate from $geoNear"],
+  ["allocated", "committed allocation"],
+];
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>

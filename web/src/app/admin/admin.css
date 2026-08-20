@@ -1,362 +1,1053 @@
-:root {
-  --bg: #0b0f14;
-  --panel: #121820;
-  --panel2: #171f2a;
-  --line: #223041;
-  --ink: #e6edf6;
-  --dim: #8fa3b8;
-  --faint: #5d7086;
-  --llm: #7aa2ff;
-  --det: #4ec9a8;
-  --warn: #ffb454;
-  --bad: #ff6b6b;
-  --good: #4ec9a8;
-}
+/* Admin + org console styling.
+ *
+ * Tokens live in globals.css; this file only composes them. Notes on what
+ * changed and why are inline at each site, but the structural fixes were:
+ *   - every colour came from a token or a one-off rgba() literal; the literals
+ *     are now derived tokens (--llm-fill etc.)
+ *   - .privacy was declared twice, 9 rules apart, and the second block silently
+ *     won on padding/border
+ *   - .notify carried a flat monospace rule from an earlier revision that
+ *     fought the .notifyHead/.notifyMsg markup actually being rendered
+ *   - .routeChip painted a blue fill with green text
+ *   - nothing had a hover transition, a focus treatment, or a breakpoint
+ */
 
 .admin {
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
-  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  padding-bottom: 4rem;
+  padding-bottom: var(--space-6);
 }
 
-/* ---- topbar ---- */
-.topbar {
-  display: flex; align-items: center; gap: 2rem;
-  padding: 0.85rem 1.5rem;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-  position: sticky; top: 0; z-index: 10;
+/* Every full-width band shares one inline gutter so the topbar, controls,
+   section titles and cards line up on a common left edge. They previously each
+   carried their own 1.5rem and drifted.
+
+   Declared on .admin rather than `.admin > *` so it inherits through wrapper
+   elements -- the live region around the run stream is one such wrapper, and a
+   direct-child selector would have left everything inside it with no gutter. */
+.admin {
+  --gutter: var(--space-5);
 }
-.brand { display: flex; align-items: baseline; gap: 0.6rem; }
+
+/* ---- topbar ----------------------------------------------------------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--gutter);
+  border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--llm) 7%, transparent), transparent),
+    color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-sm);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* The brand is a link home now; strip the anchor styling. */
+.topbar .brand { text-decoration: none; color: inherit; }
+.topbar .brand:hover .sub { color: var(--ink); }
+.brand { display: flex; align-items: baseline; gap: var(--space-2); }
 .mark { font-weight: 700; letter-spacing: 0.14em; font-size: 1rem; }
 .sub { color: var(--dim); font-size: 0.8rem; }
-.nav { display: flex; gap: 0.4rem; margin-left: auto; }
+
+.nav { display: flex; gap: var(--space-1); margin-left: auto; flex-wrap: wrap; }
+/* Used on links, spans and buttons alike, so the button UA styles have to be
+   reset here. Without the explicit `background`, a <button className="navItem">
+   -- the org portal's Sign out and its tab bar -- rendered with the browser's
+   default grey fill and read as a disabled control. */
 .navItem {
-  padding: 0.35rem 0.8rem; border-radius: 6px; color: var(--dim);
-  text-decoration: none; font-size: 0.85rem; border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-sm);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-family: inherit;
+  border: 1px solid transparent;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
 }
-.navItem:hover { color: var(--ink); border-color: var(--line); }
-.navItem.active { color: var(--ink); background: var(--panel2); border-color: var(--line); }
-.status { display: flex; align-items: center; gap: 0.5rem; color: var(--dim); font-size: 0.8rem; }
-.dot { width: 8px; height: 8px; border-radius: 50%; }
-.dot.on { background: var(--good); box-shadow: 0 0 8px var(--good); }
-.dot.off { background: var(--bad); }
-.count { color: #5d7086; margin-left: 0.4rem; }
+.navItem:hover { color: var(--ink); border-color: var(--line); background: var(--panel2); }
+.navItem.active {
+  color: var(--ink);
+  background: var(--panel2);
+  border-color: var(--line);
+  font-weight: 500;
+}
+/* The nav went from two links to four named sections, and a background shift
+   alone was not enough to answer "where am I" at a glance from the back of a
+   room. The bar is decorative -- `aria-current` already carries it for a
+   screen reader. */
+.navItem.active::after {
+  content: "";
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: -1px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--llm);
+}
+.navItem { position: relative; }
 
-/* ---- control ---- */
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--dim);
+  font-size: 0.8rem;
+}
+/* The dot is decorative: the state is also written as text beside it, so a
+   red/green pair is never the only carrier of the meaning. */
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.on { background: var(--good); box-shadow: 0 0 0 3px var(--det-fill); }
+.dot.off {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px var(--bad-fill);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: 0.45; } }
+.count {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--line);
+}
+
+/* ---- injection control ----------------------------------------------- */
 .control {
-  display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap;
-  padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-4) var(--gutter) var(--space-5);
+  border-bottom: 1px solid var(--line);
+  background: radial-gradient(48rem 20rem at 0% 0%,
+              color-mix(in srgb, var(--llm) 6%, transparent), transparent 70%);
 }
-.control label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.75rem; color: var(--dim); }
-.control select, .control input {
-  background: var(--panel2); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 6px; padding: 0.45rem 0.6rem; font-size: 0.85rem;
-}
-.control input { width: 90px; }
-.control button {
-  background: var(--llm); color: #0b0f14; border: 0; border-radius: 6px;
-  padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer; font-size: 0.85rem;
-}
-.control button:disabled { opacity: 0.45; cursor: not-allowed; }
-.hint { color: #5d7086; font-size: 0.75rem; flex-basis: 100%; margin: 0; }
 
-.empty { text-align: center; padding: 5rem 1rem; color: var(--dim); }
-.empty h2 { color: var(--ink); font-weight: 500; margin: 0 0 0.4rem; }
+/* Claims the full first row so the four inputs start on a line of their own. */
+.controlIntro { flex: 1 0 100%; margin-bottom: var(--space-1); }
+.controlTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.controlHint {
+  margin: var(--space-1) 0 0;
+  font-size: 0.85rem;
+  color: var(--dim);
+  max-width: 60ch;
+  line-height: 1.6;
+}
+.control label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--dim);
+}
+.control select,
+.control input {
+  background: var(--panel2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 var(--space-2);
+  min-height: var(--hit-sm);
+  font-size: 0.85rem;
+  transition: border-color var(--dur) var(--ease);
+}
+.control select:hover,
+.control input:hover { border-color: var(--line-strong); }
+.control input { width: 88px; font-variant-numeric: tabular-nums; }
+.control input.coord { width: 116px; font-family: var(--font-mono, ui-monospace), monospace; }
+
+.control .fire {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: var(--llm);
+  color: var(--on-accent);
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0 var(--space-4);
+  min-height: var(--hit-sm);
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: filter var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.control .fire:hover:not(:disabled) { filter: brightness(1.1); }
+.control .fire:active:not(:disabled) { filter: brightness(0.95); }
+.control .fire:disabled { opacity: 0.4; }
+
+/* A spinner rather than only swapping the label: the run takes seconds and a
+   static "Dispatching…" gives no evidence anything is still happening. */
+.spinner {
+  width: 12px; height: 12px; flex: none;
+  border: 2px solid color-mix(in srgb, var(--on-accent) 35%, transparent);
+  border-top-color: var(--on-accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- section header --------------------------------------------------- */
+/* Every console section opens by saying what it is for. Shared rather than
+   per-section so the four headers cannot drift apart. */
+.sectionIntro {
+  padding: var(--space-4) var(--gutter) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: radial-gradient(48rem 20rem at 0% 0%,
+              color-mix(in srgb, var(--llm) 6%, transparent), transparent 70%);
+}
+
+/* ---- one-click scenarios --------------------------------------------- */
+/* The primary path through this page. A juror should be able to start a real
+   run without deciding anything first; the manual fields below stay for the
+   presenter who wants to aim at a specific point. */
+.scenarios {
+  flex: 1 0 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-3) 0 var(--space-2);
+}
+.scenario {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  min-height: var(--hit);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: inherit;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease),
+              transform var(--dur) var(--ease);
+}
+.scenario:hover:not(:disabled) {
+  border-color: var(--llm);
+  background: var(--panel2);
+  transform: translateY(-1px);
+}
+.scenario:active:not(:disabled) { transform: translateY(0); }
+.scenario:disabled { opacity: 0.45; box-shadow: none; }
+.scenario.running { border-color: var(--llm); box-shadow: var(--glow-llm); }
+.scenarioTitle { font-size: 0.95rem; font-weight: 600; }
+.scenarioDetail { font-size: 0.78rem; color: var(--dim); line-height: 1.5; }
+
+.controlOr {
+  flex: 1 0 100%;
+  margin: var(--space-2) 0 0;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--faint);
+}
+
+.controlMeta {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+.modeChip {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: 600;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--det-fill);
+  color: var(--det);
+  border: 1px solid color-mix(in srgb, var(--det) 35%, transparent);
+}
+.modeChip.degraded {
+  background: var(--warn-fill);
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.anchorNote { font-family: var(--font-mono, ui-monospace), monospace; }
+.linkBtn {
+  background: none;
+  border: 0;
+  padding: 0.15rem 0.3rem;
+  color: var(--llm);
+  font-size: 0.75rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.linkBtn:hover { color: var(--ink); }
+
+/* ---- empty + section headings ---------------------------------------- */
+.empty {
+  text-align: center;
+  padding: clamp(2.5rem, 7vw, 4.5rem) var(--space-5);
+  margin: var(--space-5) var(--gutter) 0;
+  color: var(--dim);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-lg);
+  background: radial-gradient(36rem 16rem at 50% 0%,
+              color-mix(in srgb, var(--llm) 5%, transparent), transparent 70%);
+}
+.empty h2 {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 1.15rem;
+  margin: 0 0 var(--space-2);
+  letter-spacing: -0.01em;
+}
+.empty p { margin: 0 auto; font-size: 0.9rem; max-width: 46ch; line-height: 1.7; }
 
 .sectionTitle {
-  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.16em;
-  color: var(--dim); margin: 1.6rem 1.5rem 0.6rem; font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--dim);
+  margin: var(--space-5) var(--gutter) var(--space-2);
+  font-weight: 600;
+}
+/* A rule that fills the remaining width, so the two stacked streams read as
+   separate groups without adding a second border colour. */
+.sectionTitle::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.sectionCount {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
 }
 
-/* ---- cards ---- */
-.stream { display: flex; flex-direction: column; gap: 1rem; padding: 0 1.5rem; }
+/* ---- cards ------------------------------------------------------------ */
+.stream {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--gutter);
+}
 .card {
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: 10px; padding: 1rem 1.15rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.card.awaiting_admin { border-color: var(--warn); box-shadow: 0 0 0 1px rgba(255, 180, 84, 0.2); }
-.card.committed { border-color: rgba(78, 201, 168, 0.4); }
-.card.rejected { opacity: 0.75; }
+.card:hover { box-shadow: var(--shadow); }
+.card.awaiting_admin {
+  border-color: var(--warn);
+  background: linear-gradient(to bottom, var(--warn-fill), transparent 120px), var(--panel);
+}
+.card.committed { border-color: color-mix(in srgb, var(--good) 38%, transparent); }
+.card.rejected { opacity: 0.72; }
+.card.rejected:hover { opacity: 1; }
 
-.cardHead { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
-.trace { font-family: ui-monospace, monospace; font-size: 0.8rem; color: var(--dim); margin-right: 0.6rem; }
-.badge {
-  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em;
-  padding: 0.15rem 0.5rem; border-radius: 4px; background: var(--panel2); color: var(--dim);
+.cardHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
-.badge.awaiting_admin { background: rgba(255, 180, 84, 0.16); color: var(--warn); }
-.badge.committed { background: rgba(78, 201, 168, 0.16); color: var(--good); }
-.badge.rejected { background: rgba(255, 107, 107, 0.16); color: var(--bad); }
+.trace {
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.78rem;
+  color: var(--dim);
+  margin-right: var(--space-2);
+}
+.badge {
+  display: inline-block;
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  padding: 0.16rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--panel2);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.badge.awaiting_admin { background: var(--warn-fill); color: var(--warn); }
+.badge.committed { background: var(--det-fill); color: var(--good); }
+.badge.rejected { background: var(--bad-fill); color: var(--bad); }
+/* An archived trace with no completion event. It used to render with an empty
+   class, so it read as unstyled text next to the pills around it. */
+.badge.incomplete {
+  background: transparent;
+  color: var(--faint);
+  border: 1px solid var(--line);
+}
 .summary { color: var(--ink); font-size: 0.9rem; }
 
-.agentRail { display: flex; gap: 0.35rem; flex-wrap: wrap; margin: 0.75rem 0; }
-.chip {
-  font-size: 0.68rem; padding: 0.15rem 0.5rem; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--dim);
+.agentRail {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  margin: var(--space-3) 0;
 }
-.chip.llm { border-color: rgba(122, 162, 255, 0.45); color: var(--llm); }
-.chip.det { border-color: rgba(78, 201, 168, 0.4); color: var(--det); }
+.chip {
+  font-size: 0.66rem;
+  padding: 0.16rem 0.45rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.chip.llm { border-color: color-mix(in srgb, var(--llm) 45%, transparent); color: var(--llm); }
+.chip.det { border-color: color-mix(in srgb, var(--det) 40%, transparent); color: var(--det); }
 
-.bubbles { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.6rem 0; }
+.bubbles { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0; }
 .bubble {
-  background: var(--panel2); border-left: 2px solid var(--line);
-  border-radius: 0 6px 6px 0; padding: 0.5rem 0.7rem;
+  background: var(--panel2);
+  border-left: 2px solid var(--line);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: var(--space-2) var(--space-3);
 }
 .bubble.llm { border-left-color: var(--llm); }
 .bubble.det { border-left-color: var(--det); }
 .who {
-  display: block; font-size: 0.65rem; text-transform: uppercase;
-  letter-spacing: 0.1em; color: var(--dim); margin-bottom: 0.2rem;
+  display: block;
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  margin-bottom: 0.15rem;
 }
-.bubble p { margin: 0; font-size: 0.87rem; }
-.tool { font-family: ui-monospace, monospace; font-size: 0.75rem; color: var(--det); word-break: break-all; }
+.bubble p { margin: 0; font-size: 0.86rem; }
+.tool {
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.74rem;
+  color: var(--det);
+  /* break-all split identifiers mid-word; anywhere breaks only where it must. */
+  overflow-wrap: anywhere;
+}
 .ms { color: var(--dim); }
-.conf { color: var(--dim); font-size: 0.7rem; margin-left: 0.5rem; }
+.conf {
+  color: var(--dim);
+  font-size: 0.7rem;
+  margin-left: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
 .caret {
-  display: inline-block; width: 7px; height: 1em; background: var(--llm);
-  margin-left: 2px; vertical-align: text-bottom; animation: blink 1s steps(2) infinite;
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  background: var(--llm);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s steps(2) infinite;
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* ---- debate ---- */
+/* ---- debate ---------------------------------------------------------- */
 .debate {
-  border: 1px dashed var(--line); border-radius: 8px;
-  padding: 0.7rem 0.85rem; margin: 0.7rem 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+  background: color-mix(in srgb, var(--panel2) 50%, transparent);
 }
 .debateTitle {
-  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.14em; color: var(--dim);
+  display: block;
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--dim);
+  margin-bottom: var(--space-1);
+  font-weight: 600;
 }
 .turn {
-  display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap;
-  padding: 0.35rem 0; border-bottom: 1px solid rgba(34, 48, 65, 0.5); font-size: 0.85rem;
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line-strong);
+  font-size: 0.85rem;
 }
 .turn:last-of-type { border-bottom: 0; }
-.turn.reply { margin-left: 1.4rem; border-left: 2px solid var(--line); padding-left: 0.7rem; }
-.speaker { font-family: ui-monospace, monospace; font-size: 0.72rem; color: var(--dim); min-width: 92px; }
+.turn.reply {
+  margin-left: var(--space-4);
+  border-left: 2px solid var(--line);
+  padding-left: var(--space-3);
+}
+.speaker {
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.71rem;
+  color: var(--dim);
+  min-width: 92px;
+}
+/* Stance is carried by a leading glyph as well as the colour, so a
+   red/green-blind operator still reads for-vs-against. */
+.turn.for .claim, .turn.against .claim { display: inline-flex; gap: 0.35rem; }
 .turn.for .claim { color: var(--good); }
+.turn.for .claim::before { content: "+"; font-weight: 700; }
 .turn.against .claim { color: var(--warn); }
-.rebuts { font-size: 0.68rem; color: #5d7086; }
-.verdict { margin-top: 0.5rem; font-size: 0.82rem; color: var(--dim); }
-.verdict em { display: block; color: #5d7086; font-size: 0.75rem; margin-top: 0.2rem; }
+.turn.against .claim::before { content: "−"; font-weight: 700; }
+.rebuts { font-size: 0.68rem; color: var(--faint); }
+.verdict {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  color: var(--dim);
+}
+.verdict em { display: block; color: var(--faint); font-size: 0.75rem; margin-top: 0.15rem; }
 
-/* ---- options ---- */
-.options { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.6rem; margin: 0.7rem 0; }
-.option { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; }
-.option.chosen { border-color: var(--llm); }
+/* ---- options --------------------------------------------------------- */
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.option {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+.option.chosen {
+  border-color: var(--llm);
+  background: linear-gradient(var(--llm-fill), var(--llm-fill)), var(--panel2);
+}
 .optLabel { display: block; font-weight: 600; font-size: 0.82rem; text-transform: capitalize; }
-.optMeta { font-size: 0.72rem; color: var(--dim); }
-.option ul { margin: 0.4rem 0 0; padding-left: 1rem; font-size: 0.78rem; color: var(--dim); }
-.pick { display: inline-block; margin-top: 0.4rem; font-size: 0.65rem; color: var(--llm); }
+.optMeta { font-size: 0.72rem; color: var(--dim); font-variant-numeric: tabular-nums; }
+.option ul { margin: var(--space-1) 0 0; padding-left: var(--space-4); font-size: 0.78rem; color: var(--dim); }
+.pick {
+  display: inline-block;
+  margin-top: var(--space-1);
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: 600;
+  color: var(--llm);
+}
 
-/* ---- gate ---- */
+/* ---- admin gate ------------------------------------------------------ */
 .gate {
-  border: 1px solid var(--warn); border-radius: 8px; padding: 0.75rem 0.85rem;
-  background: rgba(255, 180, 84, 0.07); margin: 0.7rem 0;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  background: var(--warn-fill);
+  margin: var(--space-3) 0;
 }
-.gateMsg { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.6rem; }
+.gateMsg { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: var(--space-2); }
 .gateMsg em { color: var(--dim); font-size: 0.82rem; }
-.auto { font-size: 0.72rem; color: var(--warn); }
-.gateActions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.auto { font-size: 0.72rem; color: var(--warn); font-variant-numeric: tabular-nums; }
+.gateActions { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+/* The one place in the app where a mis-click is expensive, so these get the
+   full 44px target rather than the dense 32px used elsewhere. */
 .gateActions button {
-  border: 1px solid var(--line); background: var(--panel2); color: var(--ink);
-  border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; font-size: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit);
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--ink);
+  border-radius: var(--radius);
+  padding: 0 var(--space-4);
+  font-size: 0.82rem;
+  transition: filter var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-.gateActions .approve { background: var(--good); color: #0b0f14; border-color: var(--good); font-weight: 600; }
-.gateActions .reject { color: var(--bad); border-color: rgba(255, 107, 107, 0.4); }
-.gateActions button:hover { filter: brightness(1.12); }
-
-.adminNote { font-size: 0.78rem; color: var(--dim); margin: 0.4rem 0; }
-
-/* ---- privacy ---- */
-.privacy { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.6rem 0; font-size: 0.78rem; color: var(--dim); }
-.pLabel {
-  display: inline-block; min-width: 66px; font-size: 0.62rem; text-transform: uppercase;
-  letter-spacing: 0.1em; padding: 0.1rem 0.4rem; border-radius: 4px; margin-right: 0.5rem;
+.gateActions .approve {
+  background: var(--good);
+  color: var(--on-accent);
+  border-color: var(--good);
+  font-weight: 600;
 }
-.pLabel.shared { background: rgba(78, 201, 168, 0.16); color: var(--good); }
-.pLabel.held { background: rgba(255, 107, 107, 0.14); color: var(--bad); }
-.pLabel.masked { background: rgba(224, 168, 83, 0.16); color: var(--warn); }
+.gateActions .reject { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 42%, transparent); }
+.gateActions .reject:hover { background: var(--bad-fill); }
+.gateActions button:hover:not(:disabled) { filter: brightness(1.12); }
+.gateActions button:disabled { opacity: 0.45; }
 
+.adminNote { font-size: 0.78rem; color: var(--dim); margin: var(--space-1) 0; }
+
+/* ---- privacy --------------------------------------------------------- */
+/* Was two separate .privacy blocks nine rules apart. Merged. */
 .privacy {
-  border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: var(--space-2) 0;
+  font-size: 0.78rem;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-3);
 }
+.pLabel {
+  display: inline-block;
+  min-width: 66px;
+  font-size: 0.61rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  text-align: center;
+  padding: 0.12rem 0.4rem;
+  border-radius: var(--radius-sm);
+  margin-right: var(--space-2);
+}
+.pLabel.shared { background: var(--det-fill); color: var(--good); }
+.pLabel.held { background: var(--bad-fill); color: var(--bad); }
+.pLabel.masked { background: var(--warn-fill); color: var(--warn); }
+
 .privacyHead {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 0.75rem; margin-bottom: 0.45rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 .pTitle {
-  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em;
-  color: var(--fg); font-weight: 700;
+  font-size: 0.67rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg);
+  font-weight: 700;
 }
 /* The measured count is the load-bearing part of this panel: a fixed list
    looks the same whether the redactor ran or not. */
 .pCount {
-  font-size: 0.72rem; font-family: ui-monospace, monospace; color: var(--good);
-  background: rgba(78, 201, 168, 0.12); padding: 0.1rem 0.45rem; border-radius: 4px;
+  font-size: 0.72rem;
+  font-family: var(--font-mono, ui-monospace), monospace;
+  color: var(--good);
+  background: var(--det-fill);
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
 }
-.pByField { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.45rem; }
+.pByField { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
 .pChip {
-  font-size: 0.66rem; font-family: ui-monospace, monospace; color: var(--dim);
-  border: 1px solid var(--line); border-radius: 4px; padding: 0.08rem 0.35rem;
+  font-size: 0.65rem;
+  font-family: var(--font-mono, ui-monospace), monospace;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.08rem 0.35rem;
 }
-.pOrg { margin-top: 0.45rem; font-size: 0.72rem; color: var(--dim); font-style: italic; }
+.pOrg { margin-top: var(--space-2); font-size: 0.72rem; color: var(--dim); font-style: italic; }
 
-/* ---- reveal transition ---- */
+/* ---- reveal transition ----------------------------------------------- */
 .reveal {
-  display: flex; align-items: center; gap: 0.5rem; margin: 0.45rem 0;
-  font-size: 0.78rem; color: var(--fg);
-  background: rgba(78, 201, 168, 0.08);
-  border-left: 3px solid var(--good); border-radius: 0 6px 6px 0;
-  padding: 0.4rem 0.6rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  font-size: 0.78rem;
+  color: var(--fg);
+  background: var(--det-fill);
+  border-left: 3px solid var(--good);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: var(--space-2) var(--space-3);
 }
 .revealBadge {
-  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em;
-  background: var(--good); color: #06231c; font-weight: 700;
-  padding: 0.1rem 0.4rem; border-radius: 4px; white-space: nowrap;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  background: var(--good);
+  color: var(--on-accent);
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
 }
 
-/* ---- dispatch routing ---- */
-.notifyHead { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-.routeChip {
-  font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
-  padding: 0.1rem 0.4rem; border-radius: 4px;
-  background: rgba(122, 162, 247, 0.16); color: var(--det);
+/* ---- dispatch routing ------------------------------------------------ */
+/* .notify used to be a flat monospace one-liner from a revision before the
+   head/message split existed; it coloured the whole block green and fought the
+   markup. It is a card now, matching what is actually rendered. */
+.notify {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel2);
+  font-size: 0.8rem;
 }
-.routeChip.direct_volunteer { background: rgba(78, 201, 168, 0.16); color: var(--good); }
+.notifyHead { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+.routeChip {
+  font-size: 0.61rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  /* Was a blue fill with green text. Blue fill, blue text: this is the
+     via-an-organization route, which pairs with the llm/indirect colour. */
+  background: var(--llm-fill);
+  color: var(--llm);
+}
+.routeChip.direct_volunteer { background: var(--det-fill); color: var(--good); }
 .stateChip {
-  font-size: 0.62rem; padding: 0.1rem 0.4rem; border-radius: 4px;
-  border: 1px solid var(--line); color: var(--dim);
+  font-size: 0.61rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  color: var(--dim);
 }
 /* An org allocation genuinely cannot be accepted yet; the colour says so. */
 .stateChip.waiting { border-color: var(--warn); color: var(--warn); }
 .stateChip.ready { border-color: var(--good); color: var(--good); }
-.notifyTarget { color: var(--fg); font-size: 0.75rem; }
-.notifyMsg { margin-top: 0.15rem; }
-.notifyDetail { margin-top: 0.1rem; font-size: 0.7rem; color: var(--dim); font-style: italic; }
+.notifyTarget {
+  color: var(--fg);
+  font-size: 0.75rem;
+  font-family: var(--font-mono, ui-monospace), monospace;
+  margin-left: auto;
+}
+.notifyMsg { margin-top: var(--space-1); color: var(--ink); }
+.notifyDetail { margin-top: 0.1rem; font-size: 0.71rem; color: var(--dim); font-style: italic; }
 
-/* ---- map ---- */
+/* ---- map ------------------------------------------------------------- */
+/* Map + legend are one bordered unit; the inner wrap keeps only the sizing so
+   the legend does not appear as a second detached box below a rounded map. */
+.mapBlock {
+  margin: var(--space-3) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
 .mapWrap {
-  position: relative; margin: 0.7rem 0; border: 1px solid var(--line);
-  border-radius: 8px; overflow: hidden; background: #0d1117;
+  position: relative;
+  overflow: hidden;
+  background: #0d1117;
 }
 .mapCanvas { width: 100%; height: 100%; }
 .mapEmpty {
-  position: absolute; inset: 0; display: grid; place-items: center;
-  font-size: 0.78rem; color: var(--dim); pointer-events: none;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.78rem;
+  color: var(--dim);
+  pointer-events: none;
+}
+/* A legend, because three marker colours with no key is exactly the
+   colour-only encoding the map would otherwise rely on. */
+.mapLegend {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  font-size: 0.7rem;
+  color: var(--dim);
+}
+.mapLegend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.mapLegend i {
+  width: 9px; height: 9px; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  flex: none;
 }
 /* Markers are plain divs so there is no icon sprite to fetch -- an external
    sprite would be one more thing that fails when the network does. */
 .mapPin {
-  width: 13px; height: 13px; border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.85); cursor: pointer;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  cursor: pointer;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
 }
 .mapPin.request { width: 17px; height: 17px; }
 .maplibregl-popup-content {
-  background: var(--panel, #161b22); color: var(--fg, #e6edf3);
-  font-size: 0.75rem; border-radius: 6px; padding: 0.45rem 0.6rem;
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 0.75rem;
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
 }
-.maplibregl-popup-tip { border-top-color: var(--panel, #161b22); }
+.maplibregl-popup-tip { border-top-color: var(--panel); }
 .maplibregl-ctrl-attrib { font-size: 0.6rem; }
+.maplibregl-ctrl-group { border-radius: var(--radius) !important; }
 
-/* ---- geo fallback warning ---- */
+/* ---- geo fallback warning -------------------------------------------- */
 .geoWarn {
-  margin-top: 0.6rem; padding: 0.5rem 0.65rem; font-size: 0.76rem;
-  border: 1px solid var(--warn); border-radius: 6px;
-  background: rgba(224, 168, 83, 0.10); color: var(--warn);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.76rem;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  background: var(--warn-fill);
+  color: var(--warn);
 }
 .geoWarn code {
-  display: block; margin-top: 0.3rem; font-size: 0.7rem;
-  font-family: ui-monospace, monospace; color: var(--dim);
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 0.7rem;
+  color: var(--dim);
 }
 
+/* ---- commitment ------------------------------------------------------ */
 .committed {
-  border-top: 1px solid var(--line); padding-top: 0.6rem; margin-top: 0.6rem; font-size: 0.85rem;
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: 0.85rem;
 }
-.committed ul { margin: 0.35rem 0 0; padding-left: 1rem; color: var(--dim); }
+.committed ul { margin: var(--space-1) 0 0; padding-left: var(--space-4); color: var(--dim); }
 .unmet { color: var(--warn); font-size: 0.75rem; }
-.notify { font-size: 0.75rem; color: var(--det); margin-top: 0.25rem; font-family: ui-monospace, monospace; }
-.err { font-size: 0.75rem; color: var(--warn); margin-top: 0.25rem; }
+.err {
+  font-size: 0.75rem;
+  color: var(--warn);
+  margin-top: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-left: 2px solid var(--warn);
+  background: var(--warn-fill);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
 
-/* ---- SMS simulator ---- */
-.sim { margin: 1.2rem 1.5rem 0; border: 1px solid var(--line); border-radius: 10px;
-       background: var(--panel); padding: 0.9rem 1.1rem; }
-.simHead { display: flex; align-items: baseline; justify-content: space-between; }
+/* ---- codec console (was "SMS simulator") ----------------------------- */
+.sim {
+  margin: var(--space-4) var(--gutter) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  padding: var(--space-3) var(--space-4);
+}
+.simHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
 .simHead h3 { margin: 0; font-size: 0.9rem; font-weight: 600; }
-.len { font-size: 0.72rem; color: var(--dim); font-family: ui-monospace, monospace; }
-.len.over { color: var(--bad); }
-.presets { display: flex; gap: 0.35rem; flex-wrap: wrap; margin: 0.6rem 0; }
-.preset { background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
-          border-radius: 999px; padding: 0.2rem 0.6rem; font-size: 0.7rem; cursor: pointer; }
+.simSub { flex-basis: 100%; margin: 0.2rem 0 0; font-size: 0.75rem; color: var(--faint); }
+.len {
+  font-size: 0.72rem;
+  color: var(--dim);
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-variant-numeric: tabular-nums;
+}
+.len.over { color: var(--bad); font-weight: 600; }
+.presets { display: flex; gap: var(--space-1); flex-wrap: wrap; margin: var(--space-2) 0; }
+.preset {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-sm);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--dim);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-3);
+  font-size: 0.72rem;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
 .preset:hover { color: var(--ink); border-color: var(--llm); }
-.simInput { width: 100%; background: #0d1218; color: var(--det); border: 1px solid var(--line);
-            border-radius: 6px; padding: 0.55rem 0.7rem; font-family: ui-monospace, monospace;
-            font-size: 0.85rem; resize: vertical; letter-spacing: 0.02em; }
-.simActions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
-.sendSms { background: var(--warn); color: #0b0f14; border: 0; border-radius: 6px;
-           padding: 0.45rem 0.9rem; font-weight: 600; font-size: 0.8rem; cursor: pointer; }
-.sendHttp { background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
-            border-radius: 6px; padding: 0.45rem 0.9rem; font-size: 0.8rem; cursor: pointer; }
-.sendSms:disabled, .sendHttp:disabled { opacity: 0.45; cursor: not-allowed; }
-.simHint { font-size: 0.72rem; color: #5d7086; }
-.simResult { margin-top: 0.7rem; border-radius: 6px; padding: 0.6rem 0.75rem;
-             border: 1px solid var(--line); background: var(--panel2); }
-.simResult.ok { border-color: rgba(78,201,168,0.45); }
-.simResult.bad { border-color: rgba(255,107,107,0.45); }
+.preset[aria-pressed="true"] {
+  color: var(--llm);
+  border-color: var(--llm);
+  background: var(--llm-fill);
+}
+.simInput {
+  width: 100%;
+  background: #0d1218;
+  color: var(--det);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  letter-spacing: 0.02em;
+  transition: border-color var(--dur) var(--ease);
+}
+.simInput:hover { border-color: var(--line-strong); }
+.simActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+.sendSms, .sendHttp {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--hit-sm);
+  border-radius: var(--radius);
+  padding: 0 var(--space-4);
+  font-size: 0.8rem;
+  transition: filter var(--dur) var(--ease);
+}
+.sendSms { background: var(--warn); color: var(--on-accent); border: 0; font-weight: 600; }
+.sendHttp { background: var(--panel2); color: var(--ink); border: 1px solid var(--line); }
+.sendSms:hover:not(:disabled), .sendHttp:hover:not(:disabled) { filter: brightness(1.12); }
+.sendSms:disabled, .sendHttp:disabled { opacity: 0.45; }
+.simHint { font-size: 0.72rem; color: var(--faint); }
+.simResult {
+  margin-top: var(--space-3);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  background: var(--panel2);
+}
+.simResult.ok { border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.simResult.bad { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 .simStatus { font-size: 0.82rem; font-weight: 600; }
 .simResult.ok .simStatus { color: var(--good); }
 .simResult.bad .simStatus { color: var(--bad); }
-.simDetail { font-size: 0.75rem; color: var(--dim); margin-top: 0.2rem;
-             font-family: ui-monospace, monospace; }
-.simFields { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; margin: 0.5rem 0 0; }
+.simDetail {
+  font-size: 0.75rem;
+  color: var(--dim);
+  margin-top: 0.2rem;
+  font-family: var(--font-mono, ui-monospace), monospace;
+}
+.simFields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-2) 0 0;
+}
 .simFields div { display: flex; flex-direction: column; }
-.simFields dt { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); }
-.simFields dd { margin: 0; font-size: 0.82rem; }
-.simFanout { margin-top: 0.5rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-.fanLabel { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); }
-.fanItem { font-size: 0.75rem; background: rgba(122,162,255,0.14); color: var(--llm);
-           border-radius: 4px; padding: 0.1rem 0.45rem; }
-.simWarn { margin-top: 0.4rem; font-size: 0.74rem; color: var(--warn); }
+.simFields dt {
+  font-size: 0.61rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+.simFields dd { margin: 0; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.simFanout {
+  margin-top: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+.fanLabel {
+  font-size: 0.61rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+.fanItem {
+  font-size: 0.75rem;
+  background: var(--llm-fill);
+  color: var(--llm);
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.45rem;
+}
+.simWarn { margin-top: var(--space-1); font-size: 0.74rem; color: var(--warn); }
 
-/* ---- tables (All Requests, org roster) ----
-   These had no styles at all: the markup existed and rendered as a bare
-   browser table with columns stretched across the viewport. */
+/* ---- tables (All Requests, org roster) ------------------------------- */
+/* The scroll container is the important part: six columns of trace ids and
+   allocation lists overflowed the viewport and scrolled the whole page
+   sideways on anything narrow. */
+.tableScroll {
+  padding: 0 var(--gutter);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
 .reqTable {
   width: 100%;
-  border-collapse: collapse;
+  min-width: 720px;
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   font-size: 0.85rem;
 }
 .reqTable thead th {
   text-align: left;
-  font-size: 0.65rem;
+  font-size: 0.64rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--dim);
   font-weight: 600;
-  padding: 0.6rem 0.9rem;
+  padding: var(--space-2) var(--space-3);
   background: var(--panel2);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
+  position: sticky;
+  top: 0;
 }
+/* The first cell of each row is a th[scope=row] so a screen reader announces
+   the trace id with every cell it reads. It must not inherit the thead
+   treatment. */
+.reqTable tbody th,
 .reqTable tbody td {
-  padding: 0.55rem 0.9rem;
-  border-bottom: 1px solid rgba(34, 48, 65, 0.55);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line-strong);
   vertical-align: middle;
+  text-align: left;
+  font-weight: 400;
+  background: none;
+  position: static;
 }
+.reqTable tbody tr:last-child th { border-bottom: 0; }
 .reqTable tbody tr:last-child td { border-bottom: 0; }
 .reqTable tbody tr:hover { background: var(--panel2); }
 .reqTable .dimCell { color: var(--dim); }
+.reqTable .nowrap { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .reqTable .trace {
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono, ui-monospace), monospace;
   font-size: 0.78rem;
   color: var(--llm);
 }
-/* Keep the first column from being squeezed by long capability lists. */
-.reqTable th:first-child, .reqTable td:first-child { width: 22%; }
+/* Keep the id column from being squeezed by long allocation lists, without
+   pinning it to a percentage that no longer fits seven columns. */
+.reqTable th:first-child, .reqTable td:first-child { white-space: nowrap; }
+
+/* ---- responsive ------------------------------------------------------
+   There were no breakpoints at all: the topbar's fixed gap and the control
+   row's inline layout both overflowed below roughly 900px. */
+@media (max-width: 1024px) {
+  .admin { --gutter: var(--space-4); }
+}
+
+@media (max-width: 768px) {
+  .admin { --gutter: var(--space-3); }
+  .topbar { gap: var(--space-2); padding: var(--space-2) var(--gutter); }
+  .nav { margin-left: 0; order: 3; flex-basis: 100%; }
+  .status { margin-left: auto; }
+  .control { gap: var(--space-2); }
+  .control .fire { flex-basis: 100%; }
+  .simFields { gap: var(--space-2) var(--space-4); }
+}
+
+@media (max-width: 480px) {
+  .control label { flex: 1 1 100%; }
+  .control select, .control input, .control input.coord { width: 100%; }
+  .sendSms, .sendHttp { flex: 1 1 auto; justify-content: center; }
+  .gateActions button { flex: 1 1 100%; justify-content: center; }
+  .notifyTarget { margin-left: 0; }
+}
+
+/* Bump dense 32px controls to the 44px touch floor on touch devices, without
+   inflating them on a mouse-driven monitor. */
+@media (pointer: coarse) {
+  .navItem, .preset, .control select, .control input,
+  .control .fire, .sendSms, .sendHttp { min-height: var(--hit); }
+}

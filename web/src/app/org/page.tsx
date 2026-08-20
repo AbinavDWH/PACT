@@ -8,6 +8,7 @@
 // its own helper accepts. That boundary is enforced server-side (the endpoints
 // derive org_id from the token, not the URL); this screen makes it visible.
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   orgFetch, useOrgSession, type OrgSession,
@@ -53,48 +54,65 @@ export default function OrgPortal() {
 function Login({ login }: {
   login: (u: string, p: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
-  const [username, setUsername] = useState("sanjeevani");
-  const [password, setPassword] = useState("pact-org");
+  // Empty, not prefilled. These fields used to arrive carrying "sanjeevani" /
+  // "pact-org", with the other seeded logins printed underneath -- a working
+  // credential list rendered into the page of the screen whose entire purpose
+  // is to show that one organization cannot see another's data.
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!username.trim() || !password) {
+      setError("Enter your organization login and password.");
+      return;
+    }
     setBusy(true);
     setError(null);
     const r = await login(username.trim(), password);
-    if (!r.ok) setError(r.error ?? "LOGIN_FAILED");
+    if (!r.ok) {
+      setError(
+        r.error === "LOGIN_FAILED" || !r.error
+          ? "That login was not recognized."
+          : r.error,
+      );
+    }
     setBusy(false);
   };
 
   return (
     <div className="admin orgLoginWrap">
       <form className="orgLogin" onSubmit={submit}>
-        <div className="brand">
+        <Link href="/" className="brand orgLoginBrand" aria-label="PACT home">
           <span className="mark">PACT</span>
           <span className="sub">Organization Portal</span>
-        </div>
+        </Link>
         <p className="orgLoginHint">
           Sign in as your organization. You will see only your own assignments —
           never another organization&rsquo;s.
         </p>
-        <label>
+        <label htmlFor="orgUser">
           Organization login
-          <input value={username} onChange={(e) => setUsername(e.target.value)}
+          <input id="orgUser" value={username} required
+                 onChange={(e) => setUsername(e.target.value)}
                  autoComplete="username" />
         </label>
-        <label>
+        <label htmlFor="orgPass">
           Password
-          <input type="password" value={password}
+          <input id="orgPass" type="password" value={password} required
                  onChange={(e) => setPassword(e.target.value)}
                  autoComplete="current-password" />
         </label>
-        <button disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
-        {error && <div className="orgError">{error}</div>}
-        <div className="orgSeeds">
-          Seeded: <code>sanjeevani</code> · <code>metrocsr</code> ·{" "}
-          <code>ddma</code> · <code>hamidia</code>
-        </div>
+        <button disabled={busy}>
+          {busy && <span className="spinner" aria-hidden="true" />}
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+        {/* The error sits with the form it belongs to, and is announced. */}
+        {error && (
+          <div className="orgError" role="alert">{error}</div>
+        )}
       </form>
     </div>
   );
@@ -106,17 +124,35 @@ function Dashboard({ session, logout }: { session: OrgSession; logout: () => voi
   const [busyId, setBusyId] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [tab, setTab] = useState<"assignments" | "roster">("assignments");
+  // The 5s poll had no loading state, so the first paint showed the "no
+  // assignments yet" empty state even when there were some -- and a failed
+  // poll looked identical to an empty result.
+  const [firstLoad, setFirstLoad] = useState(true);
+  const [pollError, setPollError] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [a, r] = await Promise.all([
-      orgFetch("/api/v1/org/assignments", session).then((x) => x.json()),
-      orgFetch("/api/v1/org/roster", session).then((x) => x.json()),
-    ]);
-    setAssignments((a.assignments ?? []) as Assignment[]);
-    setRoster((r.roster ?? []) as RosterMember[]);
+    try {
+      const [a, r] = await Promise.all([
+        orgFetch("/api/v1/org/assignments", session).then((x) => x.json()),
+        orgFetch("/api/v1/org/roster", session).then((x) => x.json()),
+      ]);
+      setAssignments((a.assignments ?? []) as Assignment[]);
+      setRoster((r.roster ?? []) as RosterMember[]);
+      setPollError(false);
+    } catch {
+      // Keep whatever was last shown rather than blanking the screen on one
+      // dropped poll; the banner says the data may be stale.
+      setPollError(true);
+    } finally {
+      setFirstLoad(false);
+    }
   }, [session]);
 
   useEffect(() => {
+    // Every setState inside `refresh` runs after an await, so this is the
+    // promise-continuation pattern the rule asks for rather than a synchronous
+    // write during the effect; the linter cannot see through the await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
     const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
@@ -144,16 +180,18 @@ function Dashboard({ session, logout }: { session: OrgSession; logout: () => voi
   return (
     <div className="admin">
       <header className="topbar">
-        <div className="brand">
+        <Link href="/" className="brand" aria-label="PACT home">
           <span className="mark">PACT</span>
           <span className="sub">{session.org_name}</span>
-        </div>
-        <nav className="nav">
-          <button className={`navItem ${tab === "assignments" ? "active" : ""}`}
+        </Link>
+        <nav className="nav" role="tablist" aria-label="Portal sections">
+          <button role="tab" aria-selected={tab === "assignments"}
+                  className={`navItem ${tab === "assignments" ? "active" : ""}`}
                   onClick={() => setTab("assignments")}>
             Assignments{pending.length ? ` (${pending.length})` : ""}
           </button>
-          <button className={`navItem ${tab === "roster" ? "active" : ""}`}
+          <button role="tab" aria-selected={tab === "roster"}
+                  className={`navItem ${tab === "roster" ? "active" : ""}`}
                   onClick={() => setTab("roster")}>
             Roster
           </button>
@@ -174,9 +212,21 @@ function Dashboard({ session, logout }: { session: OrgSession; logout: () => voi
         deliberation, or the seeker&rsquo;s identity until your helper accepts
       </section>
 
-      {note && <div className="orgNote">{note}</div>}
+      {note && <div className="orgNote" role="status">{note}</div>}
 
-      {tab === "assignments" ? (
+      {pollError && (
+        <div className="orgStale" role="status">
+          Could not reach the backend on the last refresh — showing the most
+          recent data received.
+        </div>
+      )}
+
+      {firstLoad ? (
+        <div className="empty">
+          <h2>Loading…</h2>
+          <p>Fetching your assignments and roster.</p>
+        </div>
+      ) : tab === "assignments" ? (
         assignments.length === 0 ? (
           <div className="empty">
             <h2>No assignments yet</h2>
@@ -191,15 +241,23 @@ function Dashboard({ session, logout }: { session: OrgSession; logout: () => voi
           </div>
         )
       ) : (
-        <div className="stream">
+        <div className="tableScroll">
           <table className="reqTable">
+            <caption className="srOnly">
+              Helpers who joined {session.org_name} with its group code.
+            </caption>
             <thead>
-              <tr><th>Helper</th><th>UID</th><th>Status</th><th>Capabilities</th></tr>
+              <tr>
+                <th scope="col">Helper</th>
+                <th scope="col">UID</th>
+                <th scope="col">Status</th>
+                <th scope="col">Capabilities</th>
+              </tr>
             </thead>
             <tbody>
               {roster.map((m) => (
                 <tr key={m.helper_id}>
-                  <td>{m.name ?? m.helper_id}</td>
+                  <th scope="row">{m.name ?? m.helper_id}</th>
                   <td className="trace">{m.uid}</td>
                   <td className="dimCell">{m.status}</td>
                   <td className="dimCell">{(m.capabilities ?? []).join(", ") || "—"}</td>
@@ -224,10 +282,12 @@ function AssignmentCard({ a, roster, busy, onAssign }: {
   busy: boolean;
   onAssign: (matchId: string, helperId: string) => void;
 }) {
-  const [helper, setHelper] = useState(roster[0]?.helper_id ?? "");
-  useEffect(() => {
-    if (!helper && roster.length) setHelper(roster[0].helper_id);
-  }, [roster, helper]);
+  // null means "not chosen yet", so the select falls through to the first
+  // roster entry as it arrives. Previously an effect copied the roster's first
+  // id into state once it loaded, which is a cascading render and also left the
+  // select briefly bound to a value not in its own option list.
+  const [helperChoice, setHelperChoice] = useState<string | null>(null);
+  const helper = helperChoice ?? roster[0]?.helper_id ?? "";
 
   const alloc = a.allocation ?? {};
   const awaiting = a.state === "awaiting_assignment";
@@ -269,7 +329,7 @@ function AssignmentCard({ a, roster, busy, onAssign }: {
 
       {awaiting ? (
         <div className="gateActions orgAssign">
-          <select value={helper} onChange={(e) => setHelper(e.target.value)}>
+          <select value={helper} onChange={(e) => setHelperChoice(e.target.value)}>
             {roster.map((m) => (
               <option key={m.helper_id} value={m.helper_id}>
                 {m.name ?? m.helper_id}

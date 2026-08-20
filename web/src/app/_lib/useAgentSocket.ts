@@ -210,13 +210,21 @@ function reduce(run: Run, ev: Envelope): Run {
   return next;
 }
 
-// Demo credentials. The portal authenticates for real -- the backend rejects
-// an unauthenticated socket with close code 4401 -- but it logs in silently so
-// the demo does not open on a login form.
+// The console signs in from environment credentials rather than opening on a
+// login form: this is an operations view behind an already-trusted boundary,
+// and the auth itself is real (the backend closes an unauthenticated socket
+// with 4401). Override per machine via NEXT_PUBLIC_ADMIN_USER/PASS.
 const ADMIN_USER = process.env.NEXT_PUBLIC_ADMIN_USER ?? "admin";
 const ADMIN_PASS = process.env.NEXT_PUBLIC_ADMIN_PASS ?? "pact-admin";
 
 let tokenPromise: Promise<string | null> | null = null;
+
+// A rejected login used to be indistinguishable from a network blip: the
+// socket looped on "reconnecting" forever with nothing saying why. Callers can
+// read this to say so.
+export type AuthState = "pending" | "ok" | "rejected" | "unreachable";
+let authState: AuthState = "pending";
+export function getAuthState(): AuthState { return authState; }
 
 export function getAdminToken(): Promise<string | null> {
   if (!tokenPromise) {
@@ -226,9 +234,18 @@ export function getAdminToken(): Promise<string | null> {
       body: JSON.stringify({ username: ADMIN_USER, password: ADMIN_PASS }),
     })
       .then((r) => r.json())
-      .then((j: { status?: string; token?: string }) =>
-        j.status === "ok" && j.token ? j.token : null)
-      .catch(() => null);
+      .then((j: { status?: string; token?: string }) => {
+        if (j.status === "ok" && j.token) {
+          authState = "ok";
+          return j.token;
+        }
+        authState = "rejected";
+        return null;
+      })
+      .catch(() => {
+        authState = "unreachable";
+        return null;
+      });
   }
   return tokenPromise;
 }
@@ -307,15 +324,23 @@ export function useAgentSocket() {
       }));
     }, []);
 
-  const simulate = useCallback(async (body: Record<string, unknown>) => {
-    await authFetch("/api/v1/admin/simulate", {
+  // Injects one request and runs the full pipeline on it. Named `dispatch`
+  // rather than `simulate`: the endpoint is /admin/simulate for compatibility,
+  // but what happens behind it is the same live-agent run the SMS path gets --
+  // only the input differs. Callers must pass lat/lon, or the backend falls
+  // back to a default centre that may sit outside the seeded area.
+  const dispatch = useCallback(async (body: Record<string, unknown>) => {
+    const res = await authFetch("/api/v1/admin/simulate", {
       method: "POST",
       body: JSON.stringify(body),
     });
+    return (await res.json()) as {
+      status?: string; trace_id?: string; lat?: number | null; lon?: number | null;
+    };
   }, []);
 
   return {
-    runs, order, connected, eventCount, decide, simulate,
+    runs, order, connected, eventCount, decide, dispatch,
     orderedRuns: order.map((id) => runs[id]).filter(Boolean),
   };
 }

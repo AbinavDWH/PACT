@@ -1,92 +1,332 @@
 "use client";
 
-// Admin portal: live match stream (primary view).
-// Every panel here is driven by the WebSocket event schema in agents.md 3.2,
-// so replacing the scripted pipeline with real Groq agents changes nothing.
+// Admin console: live deliberation stream (primary view).
+//
+// Every panel is driven by the WebSocket event schema in agents.md 3.2. The
+// agents behind it are the live Groq ones -- the backend module is still named
+// `scripted.py` for history, but it calls the real model and the real
+// `$geoNear`. This page used to claim otherwise in a caption; the mode chip in
+// the control bar now reports what the backend actually says it is running.
 
-import { useState } from "react";
-import Link from "next/link";
+import { useMemo, useState } from "react";
 import { useAgents } from "../_lib/AgentSocketProvider";
+import { useConsoleMeta } from "../_lib/useConsoleMeta";
 import { DETERMINISTIC, type DebateTurn, type Run } from "../_lib/types";
-import { SmsSimulator } from "./SmsSimulator";
+import { CodecConsole } from "./CodecConsole";
+import ConsoleNav from "./ConsoleNav";
 import MapPanel, { pointsFromRun } from "../_components/MapPanel";
 import "./admin.css";
 
-const NEEDS = ["medical_kits", "water_kits", "food_kits", "tents", "rescue_team"];
+/** One-click stories for the jury.
+ *
+ *  A juror who has to choose a resource, a quantity and a pair of coordinates
+ *  before anything happens will not press the button. Each of these is a whole
+ *  scenario, and each is chosen to make the pipeline behave differently against
+ *  the seeded stock rather than to look varied:
+ *
+ *    - rescue_team: 4 exist in the entire seed, so 3 is genuine scarcity and
+ *      the advocates actually argue;
+ *    - water_kits: held by three separate owners, so the solver has to split
+ *      one request across providers;
+ *    - tents: 120 seeded against a request for 150, so the run commits with a
+ *      reported shortfall instead of inventing stock.
+ *
+ *  `dLat`/`dLon` nudge the request off the seeded centre by a few km so the
+ *  three do not land on the same pin, while staying well inside the first rung
+ *  of the radius ladder.
+ */
+const SCENARIOS = [
+  {
+    id: "collapse",
+    title: "Building collapse",
+    detail: "3 rescue teams · 4 exist anywhere",
+    need: "rescue_team",
+    quantity: 3,
+    dLat: 0,
+    dLon: 0,
+  },
+  {
+    id: "flood",
+    title: "Flood cuts off a ward",
+    detail: "200 water kits · no single provider has them",
+    need: "water_kits",
+    quantity: 200,
+    dLat: 0.045,
+    dLon: -0.03,
+  },
+  {
+    id: "shelter",
+    title: "Cyclone shelter opening",
+    detail: "150 tents · only 120 seeded, so demand goes unmet",
+    need: "tents",
+    quantity: 150,
+    dLat: -0.038,
+    dLon: 0.05,
+  },
+] as const;
 
 export default function AdminPage() {
-  const { orderedRuns, connected, eventCount, decide, simulate } = useAgents();
-  const [need, setNeed] = useState(NEEDS[0]);
+  const { orderedRuns, connected, eventCount, decide, dispatch } = useAgents();
+  const meta = useConsoleMeta();
+
+  // null means "the operator has not chosen yet", so the field falls through to
+  // whatever the backend reports. Held as null rather than synced into state by
+  // an effect: copying fetched values into state on arrival is a cascading
+  // render, and it also races the fetch on first paint.
+  const [needChoice, setNeedChoice] = useState<string | null>(null);
   const [qty, setQty] = useState(3);
+  const [latInput, setLatInput] = useState<string | null>(null);
+  const [lonInput, setLonInput] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [preset, setPreset] = useState<string | null>(null);
+
+  const need = needChoice ?? meta.inventory[0]?.resource ?? "";
+  const lat = latInput ?? (meta.anchor ? String(meta.anchor.lat) : "");
+  const lon = lonInput ?? (meta.anchor ? String(meta.anchor.lon) : "");
+
+  const latNum = Number(lat);
+  const lonNum = Number(lon);
+  const coordsValid =
+    lat.trim() !== "" && lon.trim() !== "" &&
+    Number.isFinite(latNum) && Number.isFinite(lonNum) &&
+    Math.abs(latNum) <= 90 && Math.abs(lonNum) <= 180;
+
+  const canFire = connected && !busy && need !== "" && coordsValid;
 
   const fire = async () => {
+    if (!canFire) return;
     setBusy(true);
-    await simulate({ need, quantity: qty, location_name: "Region A", urgency: "critical" });
-    setTimeout(() => setBusy(false), 600);
+    try {
+      await dispatch({
+        need,
+        quantity: qty,
+        urgency: "critical",
+        lat: latNum,
+        lon: lonNum,
+      });
+    } finally {
+      // Held briefly so the button reads as having done something even when the
+      // POST returns before the first event arrives.
+      setTimeout(() => setBusy(false), 500);
+    }
   };
 
-  const live = orderedRuns.filter((r) => r.status === "running" || r.status === "awaiting_admin");
-  const done = orderedRuns.filter((r) => r.status === "committed" || r.status === "rejected");
+  /** Fire a whole scenario. Deliberately does not write the manual inputs:
+   *  a preset that silently rewrote the four fields would leave the operator
+   *  unsure what they were about to send next. */
+  const runScenario = async (s: (typeof SCENARIOS)[number]) => {
+    if (!meta.anchor || busy) return;
+    setBusy(true);
+    setPreset(s.id);
+    try {
+      await dispatch({
+        need: s.need,
+        quantity: s.quantity,
+        urgency: "critical",
+        lat: meta.anchor.lat + s.dLat,
+        lon: meta.anchor.lon + s.dLon,
+      });
+    } finally {
+      setTimeout(() => { setBusy(false); setPreset(null); }, 500);
+    }
+  };
+
+  /** A scenario whose resource is not seeded would dispatch into an empty
+   *  match set and look like a failure, so it is disabled and says why. */
+  const stockFor = (need: string) =>
+    meta.inventory.find((r) => r.resource === need)?.available ?? 0;
+
+  const atAnchor =
+    meta.anchor != null &&
+    Math.abs(latNum - meta.anchor.lat) < 1e-6 &&
+    Math.abs(lonNum - meta.anchor.lon) < 1e-6;
+
+  const live = useMemo(
+    () => orderedRuns.filter((r) => r.status === "running" || r.status === "awaiting_admin"),
+    [orderedRuns],
+  );
+  const done = useMemo(
+    () => orderedRuns.filter((r) => r.status === "committed" || r.status === "rejected"),
+    [orderedRuns],
+  );
 
   return (
     <div className="admin">
-      <header className="topbar">
-        <div className="brand">
-          <span className="mark">PACT</span>
-          <span className="sub">Admin Portal</span>
-        </div>
-        <nav className="nav">
-          <span className="navItem active">Live Matches</span>
-          <Link className="navItem" href="/admin/requests">All Requests</Link>
-        </nav>
-        <div className="status">
-          <span className={`dot ${connected ? "on" : "off"}`} />
-          {connected ? "connected" : "reconnecting"}
-          <span className="count">{eventCount} events</span>
-        </div>
-      </header>
+      <ConsoleNav connected={connected} eventCount={eventCount} />
 
-      <section className="control">
+      <section className="control" aria-label="Inject a request">
+        <div className="controlIntro">
+          <h1 className="controlTitle">Dispatch a request</h1>
+          <p className="controlHint">
+            Stands in for a request arriving from the app. The agents below
+            handle it exactly as they would a real one.
+          </p>
+        </div>
+
+        <div className="scenarios">
+          {SCENARIOS.map((s) => {
+            const stock = stockFor(s.need);
+            const ready = connected && !busy && meta.anchor != null && stock > 0;
+            return (
+              <button
+                key={s.id}
+                className={`scenario ${preset === s.id ? "running" : ""}`}
+                onClick={() => void runScenario(s)}
+                disabled={!ready}
+                title={
+                  meta.anchor == null
+                    ? "Seed the fixtures first"
+                    : stock === 0
+                      ? `No ${s.need.replace(/_/g, " ")} seeded`
+                      : s.detail
+                }
+              >
+                {preset === s.id && <span className="spinner" aria-hidden="true" />}
+                <span className="scenarioTitle">{s.title}</span>
+                <span className="scenarioDetail">
+                  {stock === 0 ? "not seeded" : s.detail}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="controlOr">Or build one by hand</p>
+
         <label>
           Need
-          <select value={need} onChange={(e) => setNeed(e.target.value)}>
-            {NEEDS.map((n) => <option key={n} value={n}>{n.replace(/_/g, " ")}</option>)}
+          <select value={need} onChange={(e) => setNeedChoice(e.target.value)}
+                  disabled={meta.inventory.length === 0}>
+            {meta.inventory.length === 0 && (
+              <option value="">{meta.loading ? "loading…" : "no stock"}</option>
+            )}
+            {/* Real resources, with the real available quantity beside each --
+                so picking one that cannot be filled is a visible choice. */}
+            {meta.inventory.map((r) => (
+              <option key={r.resource} value={r.resource}>
+                {r.resource.replace(/_/g, " ")} ({r.available} avail)
+              </option>
+            ))}
           </select>
         </label>
+
         <label>
           Quantity
           <input type="number" min={1} value={qty}
-                 onChange={(e) => setQty(Math.max(1, Number(e.target.value)))} />
+                 onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))} />
         </label>
-        <button onClick={fire} disabled={busy || !connected}>
-          {busy ? "Dispatching…" : "Simulate incoming request"}
+
+        {/* The request position. Previously absent entirely, which is what sent
+            every admin-injected run down the fixture path. */}
+        <label>
+          Latitude
+          <input className="coord" inputMode="decimal" value={lat}
+                 aria-invalid={lat !== "" && !coordsValid}
+                 onChange={(e) => setLatInput(e.target.value)} />
+        </label>
+        <label>
+          Longitude
+          <input className="coord" inputMode="decimal" value={lon}
+                 aria-invalid={lon !== "" && !coordsValid}
+                 onChange={(e) => setLonInput(e.target.value)} />
+        </label>
+
+        <button className="fire" onClick={fire} disabled={!canFire}>
+          {busy && <span className="spinner" aria-hidden="true" />}
+          {busy ? "Dispatching…" : "Dispatch request"}
         </button>
-        <p className="hint">
-          Scripted pipeline — real Groq agents drop in behind this same event stream.
+
+        <p className="controlMeta">
+          <span className={`modeChip ${meta.liveAgents ? "" : "degraded"}`}>
+            {meta.liveAgents ? "live agents" : "deterministic fallback"}
+          </span>
+          <span className={`modeChip ${meta.mongoConnected ? "" : "degraded"}`}>
+            {meta.mongoConnected ? "mongo connected" : "mongo offline"}
+          </span>
+          {meta.autopilot && (
+            <span className="modeChip degraded">
+              autopilot{meta.gateTimeoutS != null ? ` ${meta.gateTimeoutS}s` : ""}
+            </span>
+          )}
+
+          {meta.error ? (
+            <>Backend unreachable — check the API address, then <button
+              className="linkBtn" onClick={() => void meta.refresh()}>retry</button>.</>
+          ) : meta.anchor == null && !meta.loading ? (
+            <>No fixtures seeded, so <code>$geoNear</code> has nothing to match
+              against. Seed first: <code>POST /api/v1/admin/seed</code></>
+          ) : atAnchor ? (
+            <>Dispatching at the seeded centre{" "}
+              <span className="anchorNote">
+                {meta.anchor?.lat}, {meta.anchor?.lon}
+              </span>
+              {meta.radiusLadderKm.length > 0 &&
+                ` — radius ladder ${meta.radiusLadderKm.join("/")} km`}
+            </>
+          ) : coordsValid && meta.anchor ? (
+            <>Off-centre by{" "}
+              {haversineKm(latNum, lonNum, meta.anchor.lat, meta.anchor.lon).toFixed(0)} km.{" "}
+              <button className="linkBtn" onClick={() => {
+                // Back to falling through to the reported anchor.
+                setLatInput(null);
+                setLonInput(null);
+              }}>Reset to seeded centre</button>
+            </>
+          ) : (
+            <>Enter a valid latitude and longitude.</>
+          )}
         </p>
       </section>
 
-      <SmsSimulator />
+      <CodecConsole />
 
       {orderedRuns.length === 0 && (
         <div className="empty">
-          <h2>No requests yet</h2>
-          <p>Fire a simulated request above to watch the agents deliberate.</p>
+          <h2>Nothing in flight</h2>
+          <p>
+            Dispatch a request above, or send a codec string through the
+            console, to watch the agents deliberate.
+          </p>
         </div>
       )}
 
-      {live.length > 0 && <h2 className="sectionTitle">Live</h2>}
-      <div className="stream">
-        {live.map((r) => <RunCard key={r.traceId} run={r} decide={decide} />)}
-      </div>
+      {/* aria-live on the stream: runs arrive on their own and a screen reader
+          would otherwise never be told. "polite" rather than "assertive" so it
+          does not interrupt on every token. */}
+      <div aria-live="polite" aria-relevant="additions">
+        {live.length > 0 && (
+          <h2 className="sectionTitle">
+            Live <span className="sectionCount">{live.length}</span>
+          </h2>
+        )}
+        <div className="stream">
+          {live.map((r) => <RunCard key={r.traceId} run={r} decide={decide} />)}
+        </div>
 
-      {done.length > 0 && <h2 className="sectionTitle">Completed</h2>}
-      <div className="stream">
-        {done.map((r) => <RunCard key={r.traceId} run={r} decide={decide} />)}
+        {done.length > 0 && (
+          <h2 className="sectionTitle">
+            Completed <span className="sectionCount">{done.length}</span>
+          </h2>
+        )}
+        <div className="stream">
+          {done.map((r) => <RunCard key={r.traceId} run={r} decide={decide} />)}
+        </div>
       </div>
     </div>
   );
+}
+
+/** Great-circle distance, to tell the operator how far off the fixtures they
+ *  are aiming -- the difference between a real match and a fixture-backed one. */
+function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const R = 6371;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(bLat - aLat);
+  const dLon = rad(bLon - aLon);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 function RunCard({ run, decide }: {
@@ -284,7 +524,8 @@ function RunCard({ run, decide }: {
       {run.geoLive === false && (
         <div className="geoWarn">
           <strong>$geoNear returned nothing</strong> — this run used hardcoded
-          fixtures, not the database. Reseed near the request location:
+          fixtures, not the database. Either the request landed outside the
+          seeded area, or nothing is seeded. Reseed near the request location:
           <code>POST /api/v1/admin/seed {"{"}lat, lon{"}"}</code>
         </div>
       )}
