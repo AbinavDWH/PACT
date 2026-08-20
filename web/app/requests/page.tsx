@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { ActivityEntry, HubRequest } from "../../lib/types";
-import { acceptRequest, listActivity, listRequests, rejectRequest } from "../../lib/api";
+import { acceptRequest, confirmHandover, confirmReceipt, listActivity, listRequests, rejectRequest } from "../../lib/api";
 import RequestTable from "../../components/RequestTable";
 
 // FIX: load Leaflet map only in the browser (no SSR)
@@ -95,6 +95,30 @@ export default function RequestsPage() {
     }
   }, [refresh]);
 
+  const onConfirmHandover = useCallback(async (id: string, planId?: string) => {
+    setBusyId(id);
+    try {
+      await confirmHandover({ request_id: id, plan_id: planId });
+      await refresh();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Handover confirmation failed");
+    } finally {
+      setBusyId(null);
+    }
+  }, [refresh]);
+
+  const onConfirmReceipt = useCallback(async (id: string, planId?: string) => {
+    setBusyId(id);
+    try {
+      await confirmReceipt({ request_id: id, plan_id: planId });
+      await refresh();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Receipt confirmation failed");
+    } finally {
+      setBusyId(null);
+    }
+  }, [refresh]);
+
   return (
     <main className="min-h-screen bg-[#FFFAF3] px-6 py-8 text-[#2b1a0e]">
       <div className="mx-auto max-w-[1600px] space-y-6">
@@ -134,7 +158,14 @@ export default function RequestsPage() {
 
         <div className="grid gap-6 lg:grid-cols-[1fr_500px]">
           <div className="space-y-6">
-            <RequestTable requests={visible} busyId={busyId} onAccept={onAccept} onReject={onReject} />
+            <RequestTable
+              requests={visible}
+              busyId={busyId}
+              onAccept={onAccept}
+              onReject={onReject}
+              onConfirmHandover={onConfirmHandover}
+              onConfirmReceipt={onConfirmReceipt}
+            />
 
             <aside className="h-fit rounded-xl border border-[#FFE5BF] bg-white">
               <div className="border-b border-[#FFE5BF] bg-[#FFF2DB] px-4 py-3">

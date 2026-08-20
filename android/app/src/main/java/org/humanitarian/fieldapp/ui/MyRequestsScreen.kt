@@ -29,6 +29,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,8 +37,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.humanitarian.fieldapp.models.OrgRequest
 import org.humanitarian.fieldapp.models.UserRole
 import org.humanitarian.fieldapp.models.UserSession
@@ -127,6 +130,34 @@ fun MyRequestsScreen(onBack: () -> Unit) {
         localRequests.filter { it.organizationId.equals(orgId, ignoreCase = true) }
     }
 
+    val coroutineScope = rememberCoroutineScope()
+
+    val onConfirmHandover: (String?, String?) -> Unit = { planId, reqId ->
+        LocalRequestStore.markHandedOver(context, planId, reqId)
+        coroutineScope.launch {
+            try {
+                ApiClient.confirmHandover(planId, reqId, orgId)
+                val res = ApiClient.getRequestsByOrg(orgId)
+                if (res is ApiResult.Success) serverRequests = res.data
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+        }
+    }
+
+    val onConfirmReceipt: (String?, String?) -> Unit = { planId, reqId ->
+        LocalRequestStore.markReceived(context, planId, reqId)
+        coroutineScope.launch {
+            try {
+                ApiClient.confirmReceipt(planId, reqId, orgId)
+                val res = ApiClient.getRequestsByOrg(orgId)
+                if (res is ApiResult.Success) serverRequests = res.data
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+        }
+    }
+
     Scaffold(
         containerColor = PactBackground,
         topBar = {
@@ -193,21 +224,39 @@ fun MyRequestsScreen(onBack: () -> Unit) {
 
             // 1. Render Local & SMS Requests (with real-time SMS status)
             filteredLocal.forEach { item ->
-                LocalRequestCard(item)
+                LocalRequestCard(
+                    item = item,
+                    isDonor = isDonor,
+                    onConfirmHandover = onConfirmHandover,
+                    onConfirmReceipt = onConfirmReceipt
+                )
             }
 
             // 2. Render Server Requests not already in local list
             val localIds = filteredLocal.map { it.id }.toSet()
             serverRequests.filterNot { localIds.contains(it.id) }.forEach { req ->
-                ServerRequestCard(req)
+                ServerRequestCard(
+                    req = req,
+                    isDonor = isDonor,
+                    onConfirmHandover = onConfirmHandover,
+                    onConfirmReceipt = onConfirmReceipt
+                )
             }
         }
     }
 }
 
 @Composable
-private fun LocalRequestCard(item: LocalRequestItem) {
+private fun LocalRequestCard(
+    item: LocalRequestItem,
+    isDonor: Boolean,
+    onConfirmHandover: (String?, String?) -> Unit,
+    onConfirmReceipt: (String?, String?) -> Unit
+) {
+    val context = LocalContext.current
     val statusColor = getDisplayColor(item.status)
+    val isHandedOver = item.status.contains("DISPATCH") || item.status.contains("HAND") || item.status.contains("TRANSIT") || item.status.contains("DELIVER")
+    val isDelivered = item.status.contains("DELIVER") || item.status.contains("COMPLET")
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -347,7 +396,6 @@ private fun LocalRequestCard(item: LocalRequestItem) {
                 }
 
                 item.status.contains("WAITING") -> {
-                    val context = androidx.compose.ui.platform.LocalContext.current
                     val isLowUrgency = item.urgency.equals("Low", ignoreCase = true)
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(
@@ -417,6 +465,72 @@ private fun LocalRequestCard(item: LocalRequestItem) {
                 }
             }
 
+            // HANDOVER & RECEIPT ACTIONS
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isDonor) {
+                    // Donor Side Action: Confirm Handed Over
+                    if (!isHandedOver) {
+                        Button(
+                            onClick = { onConfirmHandover(item.planId, item.id) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = STATUS_GREEN, contentColor = Color.White)
+                        ) {
+                            Text("✓ Confirm Handed Over", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE8F5E9),
+                            border = BorderStroke(1.dp, STATUS_GREEN)
+                        ) {
+                            Text(
+                                text = if (isDelivered) "✓ Confirmed Handed & Delivered" else "✓ Handed Over (In Transit)",
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = STATUS_GREEN,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    // Needer Side Action: Confirm Received
+                    if (!isDelivered) {
+                        Button(
+                            onClick = { onConfirmReceipt(item.planId, item.id) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = STATUS_BLUE, contentColor = Color.White)
+                        ) {
+                            Text("✓ Confirm Received", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE8F5E9),
+                            border = BorderStroke(1.dp, STATUS_GREEN)
+                        ) {
+                            Text(
+                                text = "✓ Received Successfully",
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = STATUS_GREEN,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+
             // Raw SMS payload snippet
             if (item.rawPayload.isNotBlank()) {
                 Text(
@@ -431,8 +545,19 @@ private fun LocalRequestCard(item: LocalRequestItem) {
 }
 
 @Composable
-private fun ServerRequestCard(req: OrgRequest) {
+private fun ServerRequestCard(
+    req: OrgRequest,
+    isDonor: Boolean,
+    onConfirmHandover: (String?, String?) -> Unit,
+    onConfirmReceipt: (String?, String?) -> Unit
+) {
     val statusColor = getDisplayColor(req.status)
+    val isHandedOver = req.status.equals("in_transit", ignoreCase = true) ||
+                       req.status.equals("dispatched", ignoreCase = true) ||
+                       req.status.equals("handed_over", ignoreCase = true) ||
+                       req.status.equals("delivered", ignoreCase = true) ||
+                       req.status.equals("completed", ignoreCase = true)
+    val isDelivered = req.status.equals("delivered", ignoreCase = true) || req.status.equals("completed", ignoreCase = true)
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -551,6 +676,70 @@ private fun ServerRequestCard(req: OrgRequest) {
                             fontWeight = FontWeight.Medium,
                             color = PactTextPrimary
                         )
+                    }
+                }
+            }
+
+            // HANDOVER & RECEIPT ACTIONS (SERVER CARD)
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isDonor) {
+                    if (!isHandedOver) {
+                        Button(
+                            onClick = { onConfirmHandover(req.planId, req.id) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = STATUS_GREEN, contentColor = Color.White)
+                        ) {
+                            Text("✓ Confirm Handed Over", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE8F5E9),
+                            border = BorderStroke(1.dp, STATUS_GREEN)
+                        ) {
+                            Text(
+                                text = if (isDelivered) "✓ Confirmed Handed & Delivered" else "✓ Handed Over (In Transit)",
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = STATUS_GREEN,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    if (!isDelivered) {
+                        Button(
+                            onClick = { onConfirmReceipt(req.planId, req.id) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = STATUS_BLUE, contentColor = Color.White)
+                        ) {
+                            Text("✓ Confirm Received", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE8F5E9),
+                            border = BorderStroke(1.dp, STATUS_GREEN)
+                        ) {
+                            Text(
+                                text = "✓ Received Successfully",
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = STATUS_GREEN,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
             }

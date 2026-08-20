@@ -5,7 +5,7 @@ import { listRequests } from "../../lib/api";
 import { HubRequest } from "../../lib/types";
 import AgentLog from "../../components/AgentLog";
 
-const availabilityBadge = (a?: string) => {
+const availabilityBadge = (a?: string | null) => {
   const v = (a ?? "").toLowerCase();
   if (v === "available") return "bg-green-100 text-green-700";
   if (v === "limited") return "bg-yellow-100 text-yellow-700";

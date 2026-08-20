@@ -71,6 +71,36 @@ export function listPlans() {
   return http<{ count: number; plans: Plan[] }>("/api/v1/plans");
 }
 
+export function confirmHandover(body: {
+  plan_id?: string;
+  request_id?: string;
+  organization_id?: string;
+  notes?: string;
+}) {
+  return http<{ status: string; message: string; plan?: Plan; request?: HubRequest }>(
+    "/api/v1/handoff/confirm",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    }
+  );
+}
+
+export function confirmReceipt(body: {
+  plan_id?: string;
+  request_id?: string;
+  organization_id?: string;
+  notes?: string;
+}) {
+  return http<{ status: string; message: string; plan?: Plan; request?: HubRequest }>(
+    "/api/v1/delivery/confirm",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    }
+  );
+}
+
 export function listActivity(limit = 50) {
   return http<{ activity: ActivityEntry[] }>(`/api/v1/agent-activity?limit=${limit}`);
 }

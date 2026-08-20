@@ -10,6 +10,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app import db
+
 
 app = FastAPI(
     title="Humanitarian Coordination Backend",
@@ -58,6 +60,20 @@ class HubRequestCreate(BaseModel):
 
 class RejectBody(BaseModel):
     reason: str = "invalid"
+
+
+class ConfirmHandoverBody(BaseModel):
+    plan_id: Optional[str] = None
+    request_id: Optional[str] = None
+    organization_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ConfirmReceivedBody(BaseModel):
+    plan_id: Optional[str] = None
+    request_id: Optional[str] = None
+    organization_id: Optional[str] = None
+    notes: Optional[str] = None
 
 
 RESOURCE_MAP = {
@@ -346,7 +362,7 @@ def parse_sms(sms: str):
 
 
 # =====================================================================
-# REQUEST HUB - in-memory store + simulated agent bus (no Redis for MVP)
+# REQUEST HUB - SQLite Persistent Store + Live Memory Cache
 # =====================================================================
 
 REQUESTS = {}
@@ -357,11 +373,6 @@ PROCESSED_SEQS = set()
 OUTBOUND_SMS_QUEUE = {}
 GATEWAY_ACTIVITY_LOGS = []
 
-_REQUEST_COUNTER = itertools.count(1)
-_SEQ_COUNTER = itertools.count(6)
-_PLAN_COUNTER = itertools.count(101)
-_SMS_OUT_COUNTER = itertools.count(1)
-
 ORG_PHONE_MAP = {
     "NGO01": "+919876543210",
     "CSR02": "+919876543211",
@@ -369,21 +380,45 @@ ORG_PHONE_MAP = {
     "ADMIN01": "+919876543200",
 }
 
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+def next_request_id() -> str:
+    val = db.get_next_sequence("request_id", 1)
+    return f"REQ-{val:03d}"
+
+def next_seq() -> str:
+    val = db.get_next_sequence("sms_seq", 1)
+    return f"{val:03d}"
+
+def next_plan_id() -> str:
+    val = db.get_next_sequence("plan_id", 101)
+    return f"PLAN-{val:03d}"
+
 def next_outbound_sms_id() -> str:
-    return f"SMS-OUT-{next(_SMS_OUT_COUNTER):03d}"
+    val = db.get_next_sequence("sms_out_id", 1)
+    return f"SMS-OUT-{val:03d}"
 
 def add_gateway_log(direction: str, from_to: str, message: str, status: str, detail: str = ""):
-    GATEWAY_ACTIVITY_LOGS.append({
-        "id": f"GW-{len(GATEWAY_ACTIVITY_LOGS)+1:04d}",
+    entry = {
+        "id": f"GW-{db.get_next_sequence('gw_log_id', 1):04d}",
         "ts": now_iso(),
         "direction": direction,
         "from_to": from_to,
         "message": message,
         "status": status,
         "detail": detail
-    })
+    }
+    db.save_gateway_log(entry)
+    GATEWAY_ACTIVITY_LOGS.append(entry)
     if len(GATEWAY_ACTIVITY_LOGS) > 300:
         del GATEWAY_ACTIVITY_LOGS[: len(GATEWAY_ACTIVITY_LOGS) - 300]
+
+def add_activity(agent: str, message: str):
+    entry = db.save_activity(agent, message, now_iso())
+    AGENT_ACTIVITY.append(entry)
+    if len(AGENT_ACTIVITY) > 300:
+        del AGENT_ACTIVITY[: len(AGENT_ACTIVITY) - 300]
 
 def queue_outbound_sms(to_number: str, message: str, msg_type: str = "allocation", plan_id: Optional[str] = None):
     sms_id = next_outbound_sms_id()
@@ -399,6 +434,7 @@ def queue_outbound_sms(to_number: str, message: str, msg_type: str = "allocation
         "error": None
     }
     OUTBOUND_SMS_QUEUE[sms_id] = item
+    db.save_outbound_sms(item)
     add_gateway_log(
         direction="OUTBOUND",
         from_to=to_number,
@@ -427,32 +463,12 @@ BANNED_KEYWORDS = (
 )
 
 
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def next_request_id() -> str:
-    return f"REQ-{next(_REQUEST_COUNTER):03d}"
-
-
-def next_seq() -> str:
-    return f"{next(_SEQ_COUNTER):03d}"
-
-
-def next_plan_id() -> str:
-    return f"PLAN-{next(_PLAN_COUNTER):03d}"
-
-
-def add_activity(agent: str, message: str):
-    AGENT_ACTIVITY.append({"ts": now_iso(), "agent": agent, "message": message})
-    if len(AGENT_ACTIVITY) > 200:
-        del AGENT_ACTIVITY[: len(AGENT_ACTIVITY) - 200]
-
-
 def build_canonical_sms(rec: dict):
     seq = rec.get("seq", "000")
     if rec["type"] == "need":
-        body = (f"N|{seq}|{rec['organization_id']}|{rec.get('location_code')}"
+        lat, lng = rec.get("latitude"), rec.get("longitude")
+        loc_val = f"{lat:.4f},{lng:.4f}" if (lat and lng and (lat != 0 or lng != 0)) else rec.get("location_code", "RA")
+        body = (f"N|{seq}|{rec['organization_id']}|{loc_val}"
                 f"|{rec.get('resource_code')}|{rec.get('quantity')}|{rec.get('urgency_code')}")
     elif rec["type"] == "resource":
         body = (f"R|{seq}|{rec['organization_id']}|{rec.get('location_code')}"
@@ -469,6 +485,7 @@ def finalize_request(rec: dict) -> dict:
     if rec["sms_canonical"]:
         rec["checksum"] = xor_checksum(rec["sms_canonical"].rsplit("|", 1)[0])
     REQUESTS[rec["id"]] = rec
+    db.save_request(rec)
     return rec
 
 
@@ -562,71 +579,60 @@ def create_request_from_need(payload: NeedRequest):
     return rec
 
 
-def seed_demo_data():
-    if REQUESTS:
-        return
+def init_db_and_load_state():
+    """
+    Initializes SQLite database tables and loads all persistent historical records.
+    Zero mock data. Everything is sourced from real field transmissions and database records.
+    """
+    db.init_db()
 
-    ORGANIZATIONS.update({
-        "NGO01": {"name": "NGO Alpha", "resources": {"M": 150}, "eta_hours": 3, "radius_km": 50},
-        "CSR02": {"name": "CSR Beta", "resources": {"F": 600, "M": 200}, "eta_hours": 4, "radius_km": 80},
-        "GOV03": {"name": "Gov Gamma", "resources": {"W": 400, "F": 100}, "eta_hours": 6, "radius_km": 120},
-    })
+    # 1. Load Requests
+    loaded_requests = db.load_all_requests()
+    REQUESTS.clear()
+    REQUESTS.update(loaded_requests)
 
-    def seed_request(**fields):
-        rec = {
-            "id": next_request_id(), "status": "pending", "source": "web",
-            "payload": {}, "checksum": None, "created_at": now_iso(),
-            "reviewed_at": None, "reject_reason": None,
-            "latitude": None, "longitude": None,
+    # 2. Load Organizations
+    loaded_orgs = db.load_all_organizations()
+    ORGANIZATIONS.clear()
+    ORGANIZATIONS.update(loaded_orgs)
+
+    # 3. Load Plans
+    loaded_plans = db.load_all_plans()
+    PLANS.clear()
+    PLANS.update(loaded_plans)
+
+    # 4. Load Outbound SMS Queue
+    loaded_sms = db.load_all_outbound_sms()
+    OUTBOUND_SMS_QUEUE.clear()
+    OUTBOUND_SMS_QUEUE.update(loaded_sms)
+
+    # 5. Load Gateway Logs & Activity Logs
+    loaded_gw = db.load_gateway_logs(300)
+    GATEWAY_ACTIVITY_LOGS.clear()
+    GATEWAY_ACTIVITY_LOGS.extend(loaded_gw)
+
+    loaded_acts = db.load_activities(300)
+    AGENT_ACTIVITY.clear()
+    AGENT_ACTIVITY.extend(loaded_acts)
+
+    # 6. Populate Processed Sequence Cache to prevent replay attacks
+    PROCESSED_SEQS.clear()
+    for r in REQUESTS.values():
+        if r.get("organization_id") and r.get("seq"):
+            PROCESSED_SEQS.add((r["organization_id"], r["seq"]))
+
+    # 7. Initialize baseline organization directories if clean database
+    if not ORGANIZATIONS:
+        baseline_orgs = {
+            "NGO01": {"name": "NGO Alpha", "resources": {}, "eta_hours": 3, "radius_km": 50, "phone": "+919876543210"},
+            "CSR02": {"name": "CSR Beta", "resources": {}, "eta_hours": 4, "radius_km": 80, "phone": "+919876543211"},
+            "GOV03": {"name": "Gov Gamma", "resources": {}, "eta_hours": 6, "radius_km": 120, "phone": "+919876543212"},
         }
-        rec.update(fields)
-        loc = rec.get("location_code")
-        if rec.get("latitude") is None and loc in LOCATION_COORDS:
-            rec["latitude"], rec["longitude"] = LOCATION_COORDS[loc]
-        return finalize_request(rec)
+        for org_id, org_data in baseline_orgs.items():
+            ORGANIZATIONS[org_id] = org_data
+            db.save_organization(org_id, org_data)
 
-    seed_request(type="need", seq="001", organization_id="NGO01", source="sms",
-                 location_code="RA", location_name="Region A",
-                 resource="food_kits", resource_code="F", quantity=300,
-                 urgency="high", urgency_code="H")
-    seed_request(type="need", seq="002", organization_id="NGO01", source="web",
-                 location_code="RA", location_name="Region A",
-                 resource="medical_kits", resource_code="M", quantity=200,
-                 urgency="critical", urgency_code="C")
-    seed_request(type="resource", seq="003", organization_id="CSR02", source="sms",
-                 location_code="RA", location_name="Region A",
-                 resource="food_kits", resource_code="F", quantity=200,
-                 availability="available", availability_code="A")
-    seed_request(type="need", seq="004", organization_id="CSR02", source="android",
-                 location_code="RB", location_name="Region B",
-                 resource="tents", resource_code="T", quantity=120,
-                 urgency="medium", urgency_code="M")
-    seed_request(type="status", seq="005", organization_id="GOV03", source="sms",
-                 plan_id="PLAN-100", status_code=3)
-
-    PLANS["PLAN-100"] = {
-        "plan_id": "PLAN-100", "request_id": None,
-        "resource": "food_kits", "resource_code": "F",
-        "location_code": "RA", "location_name": "Region A",
-        "required_quantity": 300, "allocated_quantity": 300,
-        "allocations": [
-            {"organization_id": "CSR02", "quantity": 200, "eta_hours": 4},
-            {"organization_id": "GOV03", "quantity": 100, "eta_hours": 6},
-        ],
-        "priority": "high", "status": "delivered", "created_at": now_iso(),
-    }
-
-    add_activity("System", "Request Hub online - 3 organizations registered")
-    add_activity("SMS Gateway", "SMS from NGO01 decoded -> REQ-001 (need)")
-    add_activity("SMS Gateway", "SMS from CSR02 decoded -> REQ-003 (resource)")
-    add_activity("Coordination Agent", "PLAN-100 delivered to Region A")
-
-    # Seed initial gateway activity & pending outbound SMS for mobile relay testing
-    demo_alloc_body = "A|003|PLAN-100|CSR02|F|200|RA|4"
-    demo_alloc_sms = f"{demo_alloc_body}|{xor_checksum(demo_alloc_body)}"
-    queue_outbound_sms(to_number="+919876543211", message=demo_alloc_sms, msg_type="allocation", plan_id="PLAN-100")
-    add_gateway_log("INBOUND", "+919876543210", "N|001|NGO01|RA|F|300|H|B3", "FORWARDED_TO_SERVER", "Decoded -> REQ-001")
-    add_gateway_log("INBOUND", "+919876543211", "R|002|CSR02|RA|F|200|A|7C", "FORWARDED_TO_SERVER", "Decoded -> REQ-003")
+    add_activity("System", f"ResiLink SQLite DB Online · {len(REQUESTS)} request(s), {len(PLANS)} plan(s), {len(ORGANIZATIONS)} partner org(s) loaded.")
 
 
 def check_checksum(rec: dict) -> bool:
@@ -1009,6 +1015,7 @@ async def run_need_pipeline(request_id: str):
         add_activity("Coordination Agent (AI)", f"{plan['plan_id']}: {ai_briefing.get('summary')}")
 
     PLANS[plan["plan_id"]] = plan
+    db.save_plan(plan)
 
     # ═══════ REAL SMS GATEWAY OUTBOX TRIGGER ═══════
     # Automatically queue canonical allocation SMS for each provider and requester so mobile gateway relays it via GSM
@@ -1049,6 +1056,8 @@ async def run_need_pipeline(request_id: str):
         detail = ", ".join(f"{a['quantity']} from {a['organization_id']}" for a in allocations) or "all resources fulfilled"
         add_activity("Coordination Agent", f"{request_id}: created {plan['plan_id']} - {detail}")
 
+    db.save_request(rec)
+
 
 async def run_resource_pipeline(request_id: str):
     rec = REQUESTS.get(request_id)
@@ -1061,13 +1070,16 @@ async def run_resource_pipeline(request_id: str):
 
     await asyncio.sleep(AGENT_DELAY_SECONDS)
     rec["status"] = "processing"
+    db.save_request(rec)
     add_activity("Resource Matching Agent", f"{request_id}: registering {quantity} x {resource_name} from {org_id}")
 
     org = ORGANIZATIONS.setdefault(org_id, {"name": org_id, "resources": {}, "eta_hours": 4, "radius_km": 50})
     org["resources"][resource_code] = org["resources"].get(resource_code, 0) + quantity
+    db.save_organization(org_id, org)
 
     await asyncio.sleep(AGENT_DELAY_SECONDS)
     rec["status"] = "completed"
+    db.save_request(rec)
     add_activity("Resource Matching Agent", f"{request_id}: {org_id} now holds {org['resources'][resource_code]} {resource_name}")
 
     # Auto re-evaluate waiting needs for this resource
@@ -1083,6 +1095,7 @@ async def run_status_pipeline(request_id: str):
         return
     await asyncio.sleep(AGENT_DELAY_SECONDS)
     rec["status"] = "processing"
+    db.save_request(rec)
     plan_id = rec.get("plan_id")
     status_name = STATUS_CODE_TO_NAME.get(rec.get("status_code"), "unknown")
     add_activity("Coordination Agent", f"{request_id}: status '{status_name}' received for {plan_id}")
@@ -1091,10 +1104,12 @@ async def run_status_pipeline(request_id: str):
     await asyncio.sleep(AGENT_DELAY_SECONDS)
     if plan:
         plan["status"] = "delivered" if rec.get("status_code") == 3 else status_name
+        db.save_plan(plan)
         add_activity("Coordination Agent", f"{plan_id}: plan status -> {plan['status']}")
     else:
         add_activity("Coordination Agent", f"{plan_id}: plan not found - status logged only")
     rec["status"] = "completed"
+    db.save_request(rec)
 
 
 @app.get("/")
@@ -1280,7 +1295,9 @@ async def create_request(body: HubRequestCreate):
             org_id, {"name": org_id, "resources": {}, "eta_hours": 4, "radius_km": 50}
         )
         org["resources"][resource_code] = org["resources"].get(resource_code, 0) + body.quantity
+        db.save_organization(org_id, org)
         PROCESSED_SEQS.add(key)
+        db.save_request(rec)
         add_activity(
             "Resource Matching Agent",
             f"{rec['id']}: registered {body.quantity} x {resource_name} from {org_id} (auto-accepted)",
@@ -1299,6 +1316,7 @@ async def accept_request(request_id: str):
     if rec.get("status") != "pending":
         raise HTTPException(status_code=409, detail=f"request is '{rec.get('status')}', only 'pending' can be accepted")
     rec, accepted, reason = await do_accept(rec)
+    db.save_request(rec)
     return {"accepted": accepted, "auto_reject_reason": reason, "request": rec}
 
 
@@ -1312,6 +1330,7 @@ def reject_request(request_id: str, body: RejectBody):
     rec["status"] = "rejected"
     rec["reject_reason"] = body.reason.strip() or "invalid"
     rec["reviewed_at"] = now_iso()
+    db.save_request(rec)
     add_activity("Coordinator", f"{request_id} rejected ({rec['reject_reason']})")
 
     # AUTO REPLY: Queue Rejection SMS back to field phone
@@ -1332,6 +1351,134 @@ def reject_request(request_id: str, body: RejectBody):
 def list_plans():
     items = sorted(PLANS.values(), key=lambda p: p.get("created_at", ""), reverse=True)
     return {"count": len(items), "plans": items}
+
+
+@app.post("/api/v1/handoff/confirm")
+def confirm_handover(body: ConfirmHandoverBody):
+    org_id = (body.organization_id or "DONOR").strip().upper()
+    plan = None
+    request_rec = None
+
+    if body.plan_id:
+        plan_id = body.plan_id.strip().upper()
+        plan = PLANS.get(plan_id)
+        if plan:
+            plan["status"] = "in_transit"
+            plan["handed_over_at"] = now_iso()
+            plan["handed_over_by"] = org_id
+            db.save_plan(plan)
+            # update associated request if exists
+            if plan.get("request_id") and plan["request_id"] in REQUESTS:
+                request_rec = REQUESTS[plan["request_id"]]
+                request_rec["status"] = "in_transit"
+                request_rec["handed_over_at"] = now_iso()
+                request_rec["handed_over_by"] = org_id
+                db.save_request(request_rec)
+
+    if body.request_id and not request_rec:
+        req_id = body.request_id.strip().upper()
+        request_rec = REQUESTS.get(req_id)
+        if request_rec:
+            request_rec["status"] = "in_transit"
+            request_rec["handed_over_at"] = now_iso()
+            request_rec["handed_over_by"] = org_id
+            db.save_request(request_rec)
+            if request_rec.get("plan_id") and request_rec["plan_id"] in PLANS:
+                plan = PLANS[request_rec["plan_id"]]
+                plan["status"] = "in_transit"
+                plan["handed_over_at"] = now_iso()
+                plan["handed_over_by"] = org_id
+                db.save_plan(plan)
+
+    target_desc = body.plan_id or body.request_id or "Aid supplies"
+    add_activity("Coordination Agent", f"[{org_id}] Confirmed handover for {target_desc} -> status: in_transit (Dispatched)")
+
+    # Send status SMS update if requester has registered phone
+    if request_rec and request_rec.get("from_number") and request_rec["from_number"] != "Device-SIM":
+        plan_id_str = (plan.get("plan_id") if plan else (request_rec.get("plan_id") or "PLAN-101"))
+        seq = next_seq()
+        status_body = f"S|{seq}|{plan_id_str}|1"
+        queue_outbound_sms(
+            to_number=request_rec["from_number"],
+            message=f"{status_body}|{xor_checksum(status_body)}",
+            msg_type="status_update",
+            plan_id=plan_id_str
+        )
+
+    return {
+        "status": "success",
+        "message": f"Handover confirmed for {target_desc}. Status updated to in_transit.",
+        "plan": plan,
+        "request": request_rec
+    }
+
+
+@app.post("/api/v1/delivery/confirm")
+def confirm_receipt(body: ConfirmReceivedBody):
+    org_id = (body.organization_id or "RECEIVER").strip().upper()
+    plan = None
+    request_rec = None
+
+    if body.plan_id:
+        plan_id = body.plan_id.strip().upper()
+        plan = PLANS.get(plan_id)
+        if plan:
+            plan["status"] = "delivered"
+            plan["received_at"] = now_iso()
+            plan["received_by"] = org_id
+            db.save_plan(plan)
+            # update associated request
+            if plan.get("request_id") and plan["request_id"] in REQUESTS:
+                request_rec = REQUESTS[plan["request_id"]]
+                request_rec["status"] = "completed"
+                request_rec["received_at"] = now_iso()
+                request_rec["received_by"] = org_id
+                db.save_request(request_rec)
+
+    if body.request_id and not request_rec:
+        req_id = body.request_id.strip().upper()
+        request_rec = REQUESTS.get(req_id)
+        if request_rec:
+            request_rec["status"] = "completed"
+            request_rec["received_at"] = now_iso()
+            request_rec["received_by"] = org_id
+            db.save_request(request_rec)
+            if request_rec.get("plan_id") and request_rec["plan_id"] in PLANS:
+                plan = PLANS[request_rec["plan_id"]]
+                plan["status"] = "delivered"
+                plan["received_at"] = now_iso()
+                plan["received_by"] = org_id
+                db.save_plan(plan)
+
+    target_desc = body.plan_id or body.request_id or "Aid supplies"
+    add_activity("Coordination Agent", f"[{org_id}] Confirmed supplies received successfully for {target_desc} -> status: delivered/completed")
+
+    return {
+        "status": "success",
+        "message": f"Receipt confirmed for {target_desc}. Status updated to delivered/completed.",
+        "plan": plan,
+        "request": request_rec
+    }
+
+
+@app.post("/api/v1/requests/{request_id}/handoff")
+def request_handoff_shortcut(request_id: str):
+    return confirm_handover(ConfirmHandoverBody(request_id=request_id))
+
+
+@app.post("/api/v1/requests/{request_id}/receive")
+def request_receive_shortcut(request_id: str):
+    return confirm_receipt(ConfirmReceivedBody(request_id=request_id))
+
+
+@app.post("/api/v1/plans/{plan_id}/handoff")
+def plan_handoff_shortcut(plan_id: str):
+    return confirm_handover(ConfirmHandoverBody(plan_id=plan_id))
+
+
+@app.post("/api/v1/plans/{plan_id}/receive")
+def plan_receive_shortcut(plan_id: str):
+    return confirm_receipt(ConfirmReceivedBody(plan_id=plan_id))
 
 
 # Provider inventory for the Matching page (privacy-safe shared profiles)
@@ -1378,8 +1525,8 @@ def get_ai_config():
 
 
 @app.on_event("startup")
-def seed_request_hub_on_startup():
-    seed_demo_data()
+def startup_db_init():
+    init_db_and_load_state()
 
 
 # =====================================================================
@@ -1430,6 +1577,7 @@ def ack_outbound_sms(sms_id: str, body: OutboundAckBody):
     item["dispatched_at"] = now_iso()
     if body.error:
         item["error"] = body.error
+    db.save_outbound_sms(item)
     add_gateway_log(
         direction="OUTBOUND",
         from_to=item["to_number"],
@@ -1438,6 +1586,82 @@ def ack_outbound_sms(sms_id: str, body: OutboundAckBody):
         detail=f"Mobile SIM dispatch {body.status} ({body.error or 'ok'})"
     )
     return {"status": "acknowledged", "item": item}
+
+
+# =====================================================================
+# SQLITE PERSISTENT HISTORY & AUDIT ENDPOINTS
+# =====================================================================
+
+@app.get("/api/v1/history/requests")
+def get_requests_history(
+    status: Optional[str] = None,
+    type: Optional[str] = None,
+    org_id: Optional[str] = None,
+    limit: int = 200
+):
+    """Returns persistent SQLite requests history with full audit attributes"""
+    items = list(REQUESTS.values())
+    if status:
+        items = [r for r in items if r.get("status") == status]
+    if type:
+        items = [r for r in items if r.get("type") == type]
+    if org_id:
+        items = [r for r in items if (r.get("organization_id") or "").upper() == org_id.upper()]
+    items.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    return {
+        "source": "sqlite_database",
+        "total_records": len(items),
+        "history": items[:limit]
+    }
+
+
+@app.get("/api/v1/history/plans")
+def get_plans_history(limit: int = 100):
+    """Returns persistent dispatch plans history from SQLite"""
+    items = list(PLANS.values())
+    items.sort(key=lambda p: p.get("created_at", ""), reverse=True)
+    return {
+        "source": "sqlite_database",
+        "total_plans": len(items),
+        "plans": items[:limit]
+    }
+
+
+@app.get("/api/v1/history/gateway")
+def get_gateway_history(limit: int = 200):
+    """Returns persistent GSM & Webhook transmission logs from SQLite"""
+    logs = db.load_gateway_logs(limit)
+    return {
+        "source": "sqlite_database",
+        "total_logs": len(logs),
+        "logs": logs
+    }
+
+
+@app.get("/api/v1/history/activities")
+def get_activities_history(limit: int = 200):
+    """Returns persistent AI reasoning and coordination decisions from SQLite"""
+    acts = db.load_activities(limit)
+    return {
+        "source": "sqlite_database",
+        "total_activities": len(acts),
+        "activities": acts
+    }
+
+
+@app.delete("/api/v1/history/clear")
+def clear_all_history():
+    """Admin endpoint to clear database tables (resets to clean state)"""
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM requests")
+        cursor.execute("DELETE FROM plans")
+        cursor.execute("DELETE FROM outbound_sms")
+        cursor.execute("DELETE FROM gateway_logs")
+        cursor.execute("DELETE FROM agent_activities")
+        conn.commit()
+    init_db_and_load_state()
+    return {"status": "success", "message": "SQLite history cleared. Database reset to clean state."}
 
 
 @app.get("/api/v1/sms/gateway/logs")

@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listPlans } from "../../lib/api";
+import { confirmHandover, confirmReceipt, listPlans } from "../../lib/api";
 import { Plan } from "../../lib/types";
 import AgentLog from "../../components/AgentLog";
 
 const statusColor = (s: string) => {
-  if (s === "delivered") return "bg-green-100 text-green-700";
+  if (["delivered", "completed"].includes(s)) return "bg-green-100 text-green-700";
+  if (["in_transit", "dispatched", "handed_over"].includes(s)) return "bg-purple-100 text-purple-700";
   if (s === "ready_for_dispatch") return "bg-blue-100 text-blue-700";
   if (s === "partial") return "bg-yellow-100 text-yellow-700";
   if (s === "no_suppliers") return "bg-red-100 text-red-700";
@@ -16,6 +17,8 @@ const statusColor = (s: string) => {
 export default function PlansPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -36,6 +39,36 @@ export default function PlansPage() {
       clearInterval(timer);
     };
   }, []);
+
+  const handleHandover = async (planId: string) => {
+    setBusyId(planId);
+    setSuccessMsg(null);
+    try {
+      const res = await confirmHandover({ plan_id: planId });
+      setSuccessMsg(res.message || `Plan ${planId} marked as Handed Over / In Transit!`);
+      const updated = await listPlans();
+      setPlans(updated.plans);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to confirm handover");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleReceive = async (planId: string) => {
+    setBusyId(planId);
+    setSuccessMsg(null);
+    try {
+      const res = await confirmReceipt({ plan_id: planId });
+      setSuccessMsg(res.message || `Plan ${planId} marked as Received / Delivered!`);
+      const updated = await listPlans();
+      setPlans(updated.plans);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to confirm receipt");
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const delivered = plans.filter((p) => p.status === "delivered").length;
   const ready = plans.filter((p) => ["ready_for_dispatch", "partial"].includes(p.status)).length;
@@ -58,6 +91,12 @@ export default function PlansPage() {
           <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
             Cannot reach the FastAPI backend ({error}). Start it with{" "}
             <code>uvicorn app.main:app --reload --host 0.0.0.0</code>.
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+            ✓ {successMsg}
           </div>
         )}
 
@@ -92,6 +131,9 @@ export default function PlansPage() {
                   plan.required_quantity > 0
                     ? Math.round((plan.allocated_quantity / plan.required_quantity) * 100)
                     : 0;
+                const isHandedOver = ["in_transit", "dispatched", "delivered", "completed"].includes(plan.status);
+                const isDelivered = ["delivered", "completed"].includes(plan.status);
+
                 return (
                   <div key={plan.plan_id} className="rounded-xl border border-[#FFE5BF] bg-white p-6">
                     <div className="flex items-start justify-between">
@@ -154,6 +196,46 @@ export default function PlansPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* Operational Handover & Delivery Confirmations */}
+                    <div className="mt-5 pt-4 border-t border-[#FFE5BF] flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-xs text-[#7c6a58]">
+                        <strong>Lifecycle Status:</strong>{" "}
+                        {isDelivered
+                          ? "Supplies Received & Delivery Finalized"
+                          : isHandedOver
+                          ? "Supplies Handed Over / In Transit"
+                          : "Awaiting Provider Handover"}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {!isHandedOver && (
+                          <button
+                            onClick={() => handleHandover(plan.plan_id)}
+                            disabled={busyId === plan.plan_id}
+                            className="rounded-lg bg-[#4CAF50] px-3.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
+                          >
+                            {busyId === plan.plan_id ? "Confirming…" : "Donor: Confirm Handed Over"}
+                          </button>
+                        )}
+
+                        {!isDelivered && (
+                          <button
+                            onClick={() => handleReceive(plan.plan_id)}
+                            disabled={busyId === plan.plan_id}
+                            className="rounded-lg bg-[#2196F3] px-3.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
+                          >
+                            {busyId === plan.plan_id ? "Confirming…" : "Needer: Confirm Received"}
+                          </button>
+                        )}
+
+                        {isDelivered && (
+                          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-800">
+                            ✓ Handed & Received Successfully
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 );
               })

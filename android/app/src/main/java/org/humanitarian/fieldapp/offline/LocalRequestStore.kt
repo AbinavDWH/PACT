@@ -262,9 +262,9 @@ object LocalRequestStore {
         try {
             val currentList = list(context).toMutableList()
             val statusLabel = when (statusCode) {
-                "1" -> "ACCEPTED"
-                "2" -> "EN ROUTE"
-                "3" -> "DELIVERED"
+                "1" -> "DISPATCHED / HANDED OVER"
+                "2" -> "IN TRANSIT"
+                "3" -> "DELIVERED / RECEIVED"
                 "4" -> "CANCELLED"
                 else -> "COMPLETED"
             }
@@ -285,6 +285,73 @@ object LocalRequestStore {
             if (updated) {
                 saveList(context, currentList)
             }
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+    }
+
+    fun markHandedOver(context: Context, planId: String?, requestId: String?) {
+        try {
+            val currentList = list(context).toMutableList()
+            var updated = false
+            for (i in currentList.indices) {
+                val item = currentList[i]
+                if ((planId != null && item.planId == planId) ||
+                    (requestId != null && (item.id == requestId || item.seq == requestId))) {
+                    currentList[i] = item.copy(
+                        status = "DISPATCHED / HANDED OVER",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    updated = true
+                    break
+                }
+            }
+            if (!updated && currentList.isNotEmpty()) {
+                val idx = currentList.indexOfFirst { it.status.contains("ALLOCAT") || it.status.contains("ACCEPT") }
+                if (idx >= 0) {
+                    currentList[idx] = currentList[idx].copy(
+                        status = "DISPATCHED / HANDED OVER",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    updated = true
+                }
+            }
+            if (updated) saveList(context, currentList)
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+    }
+
+    fun markReceived(context: Context, planId: String?, requestId: String?) {
+        try {
+            val currentList = list(context).toMutableList()
+            var updated = false
+            for (i in currentList.indices) {
+                val item = currentList[i]
+                if ((planId != null && item.planId == planId) ||
+                    (requestId != null && (item.id == requestId || item.seq == requestId))) {
+                    currentList[i] = item.copy(
+                        status = "DELIVERED / RECEIVED",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    updated = true
+                    break
+                }
+            }
+            if (!updated && currentList.isNotEmpty()) {
+                val idx = currentList.indexOfFirst {
+                    it.status.contains("DISPATCH") || it.status.contains("HAND") ||
+                    it.status.contains("ALLOCAT") || it.status.contains("ACCEPT")
+                }
+                if (idx >= 0) {
+                    currentList[idx] = currentList[idx].copy(
+                        status = "DELIVERED / RECEIVED",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    updated = true
+                }
+            }
+            if (updated) saveList(context, currentList)
         } catch (t: Throwable) {
             t.printStackTrace()
         }

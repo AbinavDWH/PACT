@@ -20,14 +20,14 @@ object ApiClient {
     // CHANNEL 1: NORMAL INTERNET API
     // Used when internet is available (Field Report direct send, M10 sync)
     // ═══════════════════════════════════════════════════════
-    private const val INTERNET_API_URL = "http://10.142.1.77:8000"
+    private const val INTERNET_API_URL = "http://172.16.59.41:8000"
 
     // ═══════════════════════════════════════════════════════
     // CHANNEL 2: SMS GATEWAY (SIMULATED)
     // Used for SMS fallback: sending SMS payloads + polling inbox
     // Can be a DIFFERENT IP/port to simulate a separate telecom gateway
     // ═══════════════════════════════════════════════════════
-    private const val SMS_GATEWAY_URL = "http://10.142.1.77:8000"
+    private const val SMS_GATEWAY_URL = "http://172.16.59.41:8000"
 
     // ───────────── INTERNET CHANNEL ─────────────
 
@@ -374,6 +374,76 @@ object ApiClient {
                 }
             } catch (e: Exception) {
                 ApiResult.Error(e.message ?: "Status fetch failed")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    // ───────────── HANDOVER & RECEIPT CONFIRMATIONS ─────────────
+
+    suspend fun confirmHandover(planId: String?, requestId: String?, orgId: String): ApiResult<String> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$INTERNET_API_URL/api/v1/handoff/confirm")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 6000
+                connection.readTimeout = 6000
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+
+                val payload = JSONObject()
+                    .put("organization_id", orgId)
+                if (!planId.isNullOrBlank()) payload.put("plan_id", planId)
+                if (!requestId.isNullOrBlank()) payload.put("request_id", requestId)
+
+                connection.outputStream.use { it.write(payload.toString().toByteArray()); it.flush() }
+
+                val code = connection.responseCode
+                if (code in 200..299) {
+                    val body = connection.inputStream.bufferedReader().use { it.readText() }
+                    ApiResult.Success(body)
+                } else {
+                    ApiResult.Error("HTTP $code")
+                }
+            } catch (e: Exception) {
+                ApiResult.Error(e.message ?: "Handover confirmation failed")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    suspend fun confirmReceipt(planId: String?, requestId: String?, orgId: String): ApiResult<String> {
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$INTERNET_API_URL/api/v1/delivery/confirm")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 6000
+                connection.readTimeout = 6000
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+
+                val payload = JSONObject()
+                    .put("organization_id", orgId)
+                if (!planId.isNullOrBlank()) payload.put("plan_id", planId)
+                if (!requestId.isNullOrBlank()) payload.put("request_id", requestId)
+
+                connection.outputStream.use { it.write(payload.toString().toByteArray()); it.flush() }
+
+                val code = connection.responseCode
+                if (code in 200..299) {
+                    val body = connection.inputStream.bufferedReader().use { it.readText() }
+                    ApiResult.Success(body)
+                } else {
+                    ApiResult.Error("HTTP $code")
+                }
+            } catch (e: Exception) {
+                ApiResult.Error(e.message ?: "Receipt confirmation failed")
             } finally {
                 connection?.disconnect()
             }

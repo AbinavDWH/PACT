@@ -8,6 +8,11 @@ export type RequestStatus =
   | "processing"
   | "matched"
   | "allocated"
+  | "waiting"
+  | "in_transit"
+  | "dispatched"
+  | "handed_over"
+  | "delivered"
   | "completed";
 
 export type RequestSource = "web" | "sms" | "android";
@@ -61,6 +66,11 @@ export interface HubRequest {
   created_at: string;
   reviewed_at?: string | null;
   reject_reason?: string | null;
+
+  handed_over_at?: string | null;
+  handed_over_by?: string | null;
+  received_at?: string | null;
+  received_by?: string | null;
 }
 
 // NEW: body for POST /api/v1/requests (Donor Portal)
@@ -104,6 +114,10 @@ export interface Plan {
   priority?: string | null;
   status: string;
   created_at: string;
+  handed_over_at?: string | null;
+  handed_over_by?: string | null;
+  received_at?: string | null;
+  received_by?: string | null;
 }
 
 export interface ActivityEntry {

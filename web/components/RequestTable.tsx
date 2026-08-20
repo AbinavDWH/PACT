@@ -8,6 +8,8 @@ interface Props {
   busyId: string | null;
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
+  onConfirmHandover?: (id: string, planId?: string) => void;
+  onConfirmReceipt?: (id: string, planId?: string) => void;
 }
 
 function resourceLabel(r: HubRequest): string {
@@ -74,7 +76,14 @@ function allocationCell(r: HubRequest) {
   return <span className="text-xs text-[#a1866f]">—</span>;
 }
 
-export default function RequestTable({ requests, busyId, onAccept, onReject }: Props) {
+export default function RequestTable({
+  requests,
+  busyId,
+  onAccept,
+  onReject,
+  onConfirmHandover,
+  onConfirmReceipt,
+}: Props) {
   return (
     <div className="overflow-x-auto rounded-xl border border-[#FFE5BF] bg-white">
       <table className="w-full text-sm">
@@ -102,57 +111,91 @@ export default function RequestTable({ requests, busyId, onAccept, onReject }: P
               </td>
             </tr>
           )}
-          {requests.map((r) => (
-            <tr key={r.id} className="border-b border-[#FFF2DB] last:border-0 hover:bg-[#FFFAF3]">
-              <td className="px-4 py-3">
-                <div className="font-semibold">{r.id}</div>
-                {r.sms_canonical && (
-                  <div className="mt-0.5 max-w-[220px] truncate font-mono text-[10px] text-[#a1866f]" title={r.sms_canonical}>
-                    {r.sms_canonical}
-                  </div>
-                )}
-              </td>
-              <td className="px-4 py-3 capitalize">{r.type}</td>
-              <td className="px-4 py-3 font-medium">{r.organization_id}</td>
-              <td className="px-4 py-3">
-                {r.location_code ?? "—"}
-                {r.location_name && r.location_name !== r.location_code && (
-                  <div className="text-[11px] text-[#a1866f]">{r.location_name}</div>
-                )}
-              </td>
-              <td className="px-4 py-3 font-mono text-[11px] text-[#4a3a28]">
-                {gpsLabel(r)}
-              </td>
-              <td className="px-4 py-3">{resourceLabel(r)}</td>
-              <td className="px-4 py-3">{qtyLabel(r)}</td>
-              <td className="px-4 py-3"><UrgencyBadge request={r} /></td>
-              <td className="px-4 py-3"><SourceBadge source={r.source} /></td>
-              <td className="px-4 py-3"><StatusBadge status={r.status} reason={r.reject_reason} /></td>
-              <td className="px-4 py-3">{allocationCell(r)}</td>
-              <td className="px-4 py-3">
-                {r.status === "pending" ? (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onAccept(r.id)}
-                      disabled={busyId === r.id}
-                      className="rounded-lg bg-[#F62440] px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
-                    >
-                      {busyId === r.id ? "…" : "Accept"}
-                    </button>
-                    <button
-                      onClick={() => onReject(r.id)}
-                      disabled={busyId === r.id}
-                      className="rounded-lg border border-[#e3c9a8] px-3 py-1.5 text-xs font-semibold text-[#7c4a12] transition hover:bg-[#FFF2DB] disabled:opacity-50"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                ) : (
-                  <span className="text-xs text-[#a1866f]">—</span>
-                )}
-              </td>
-            </tr>
-          ))}
+          {requests.map((r) => {
+            const isHandedOver = ["in_transit", "dispatched", "delivered", "completed"].includes(r.status);
+            const isDelivered = ["delivered", "completed"].includes(r.status);
+            const isAllocatedOrTransit = ["allocated", "matched", "in_transit", "dispatched", "handed_over"].includes(r.status);
+
+            return (
+              <tr key={r.id} className="border-b border-[#FFF2DB] last:border-0 hover:bg-[#FFFAF3]">
+                <td className="px-4 py-3">
+                  <div className="font-semibold">{r.id}</div>
+                  {r.sms_canonical && (
+                    <div className="mt-0.5 max-w-[220px] truncate font-mono text-[10px] text-[#a1866f]" title={r.sms_canonical}>
+                      {r.sms_canonical}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-3 capitalize">{r.type}</td>
+                <td className="px-4 py-3 font-medium">{r.organization_id}</td>
+                <td className="px-4 py-3">
+                  {r.location_code ?? "—"}
+                  {r.location_name && r.location_name !== r.location_code && (
+                    <div className="text-[11px] text-[#a1866f]">{r.location_name}</div>
+                  )}
+                </td>
+                <td className="px-4 py-3 font-mono text-[11px] text-[#4a3a28]">
+                  {gpsLabel(r)}
+                </td>
+                <td className="px-4 py-3">{resourceLabel(r)}</td>
+                <td className="px-4 py-3">{qtyLabel(r)}</td>
+                <td className="px-4 py-3"><UrgencyBadge request={r} /></td>
+                <td className="px-4 py-3"><SourceBadge source={r.source} /></td>
+                <td className="px-4 py-3"><StatusBadge status={r.status} reason={r.reject_reason} /></td>
+                <td className="px-4 py-3">{allocationCell(r)}</td>
+                <td className="px-4 py-3">
+                  {r.status === "pending" ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onAccept(r.id)}
+                        disabled={busyId === r.id}
+                        className="rounded-lg bg-[#F62440] px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                      >
+                        {busyId === r.id ? "…" : "Accept"}
+                      </button>
+                      <button
+                        onClick={() => onReject(r.id)}
+                        disabled={busyId === r.id}
+                        className="rounded-lg border border-[#e3c9a8] px-3 py-1.5 text-xs font-semibold text-[#7c4a12] transition hover:bg-[#FFF2DB] disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  ) : isDelivered ? (
+                    <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-800">
+                      ✓ Delivered
+                    </span>
+                  ) : isAllocatedOrTransit ? (
+                    <div className="flex flex-col gap-1">
+                      {onConfirmHandover && !isHandedOver && (
+                        <button
+                          onClick={() => onConfirmHandover(r.id, r.plan_id || undefined)}
+                          disabled={busyId === r.id}
+                          className="rounded-lg bg-[#4CAF50] px-2.5 py-1 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                        >
+                          {busyId === r.id ? "…" : "Confirm Handover"}
+                        </button>
+                      )}
+                      {onConfirmReceipt && !isDelivered && (
+                        <button
+                          onClick={() => onConfirmReceipt(r.id, r.plan_id || undefined)}
+                          disabled={busyId === r.id}
+                          className="rounded-lg bg-[#2196F3] px-2.5 py-1 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                        >
+                          {busyId === r.id ? "…" : "Confirm Received"}
+                        </button>
+                      )}
+                      {!onConfirmHandover && !onConfirmReceipt && (
+                        <span className="text-xs text-[#a1866f]">In Progress</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-[#a1866f]">—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

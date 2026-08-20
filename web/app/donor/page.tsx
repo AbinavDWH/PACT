@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createRequest, listRequests } from "../../lib/api";
-import { HubRequest } from "../../lib/types";
+import { confirmHandover, confirmReceipt, createRequest, listPlans, listRequests } from "../../lib/api";
+import { HubRequest, Plan } from "../../lib/types";
 import { getSession, UserSession } from "../../lib/auth";
 
 const LOCATIONS = [
@@ -68,6 +68,8 @@ export default function DonorPage() {
   const [result, setResult] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [submissions, setSubmissions] = useState<HubRequest[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
   // Load session on mount
   useEffect(() => {
@@ -78,19 +80,27 @@ export default function DonorPage() {
     }
   }, []);
 
-  // Live: this org's submissions (poll every 3s)
+  // Live: this org's submissions & assigned plans (poll every 3s)
   useEffect(() => {
     const org = orgId.trim().toUpperCase();
     if (!org) {
       setSubmissions([]);
+      setPlans([]);
       return;
     }
     let mounted = true;
     const load = async () => {
       try {
-        const res = await listRequests();
+        const [reqRes, planRes] = await Promise.all([listRequests(), listPlans()]);
         if (!mounted) return;
-        setSubmissions(res.requests.filter((r) => r.organization_id === org));
+        setSubmissions(reqRes.requests.filter((r) => r.organization_id === org));
+        setPlans(
+          planRes.plans.filter(
+            (p) =>
+              p.allocations.some((a) => a.organization_id === org) ||
+              reqRes.requests.some((r) => r.organization_id === org && r.plan_id === p.plan_id)
+          )
+        );
       } catch {
         // backend unreachable — keep last state
       }
@@ -102,6 +112,68 @@ export default function DonorPage() {
       clearInterval(timer);
     };
   }, [orgId]);
+
+  const handleConfirmHandover = async (planId?: string, requestId?: string) => {
+    const idKey = planId || requestId || "action";
+    setActionBusyId(idKey);
+    try {
+      const res = await confirmHandover({
+        plan_id: planId,
+        request_id: requestId,
+        organization_id: orgId.trim().toUpperCase(),
+      });
+      setResult({
+        kind: "success",
+        text: res.message || "Handover confirmed! Status updated to In Transit (Dispatched).",
+      });
+      // reload
+      const [reqRes, planRes] = await Promise.all([listRequests(), listPlans()]);
+      const org = orgId.trim().toUpperCase();
+      setSubmissions(reqRes.requests.filter((r) => r.organization_id === org));
+      setPlans(
+        planRes.plans.filter(
+          (p) =>
+            p.allocations.some((a) => a.organization_id === org) ||
+            reqRes.requests.some((r) => r.organization_id === org && r.plan_id === p.plan_id)
+        )
+      );
+    } catch (e) {
+      setResult({ kind: "error", text: e instanceof Error ? e.message : "Handover confirmation failed" });
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const handleConfirmReceipt = async (planId?: string, requestId?: string) => {
+    const idKey = planId || requestId || "action";
+    setActionBusyId(idKey);
+    try {
+      const res = await confirmReceipt({
+        plan_id: planId,
+        request_id: requestId,
+        organization_id: orgId.trim().toUpperCase(),
+      });
+      setResult({
+        kind: "success",
+        text: res.message || "Receipt confirmed! Supplies marked as Received / Delivered.",
+      });
+      // reload
+      const [reqRes, planRes] = await Promise.all([listRequests(), listPlans()]);
+      const org = orgId.trim().toUpperCase();
+      setSubmissions(reqRes.requests.filter((r) => r.organization_id === org));
+      setPlans(
+        planRes.plans.filter(
+          (p) =>
+            p.allocations.some((a) => a.organization_id === org) ||
+            reqRes.requests.some((r) => r.organization_id === org && r.plan_id === p.plan_id)
+        )
+      );
+    } catch (e) {
+      setResult({ kind: "error", text: e instanceof Error ? e.message : "Receipt confirmation failed" });
+    } finally {
+      setActionBusyId(null);
+    }
+  };
 
   const submitResource = async () => {
     setSending(true);
@@ -349,6 +421,88 @@ export default function DonorPage() {
           </div>
         </div>
 
+        {/* ── Active Aid Allocations & Handover Queue ── */}
+        <div className="rounded-xl border border-[#FFE5BF] bg-white">
+          <div className="border-b border-[#FFE5BF] bg-[#FFF2DB] px-4 py-3 flex items-center justify-between">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-[#7c4a12]">
+              Active Aid Allocations & Handover Queue ({plans.length})
+            </h2>
+            <span className="text-xs text-[#7c6a58]">
+              Confirm handover when supplies are dispatched to the field
+            </span>
+          </div>
+          <div className="p-4 space-y-3">
+            {plans.length === 0 ? (
+              <p className="text-sm text-[#a1866f] py-4 text-center">
+                No active aid allocations assigned to {orgId.trim().toUpperCase() || "your organization"} yet.
+              </p>
+            ) : (
+              plans.map((p) => {
+                const myAllocations = p.allocations.filter((a) => a.organization_id === orgId.trim().toUpperCase());
+                const myTotalQty = myAllocations.reduce((acc, a) => acc + a.quantity, 0) || p.allocated_quantity;
+                const isHandedOver = ["in_transit", "dispatched", "delivered", "completed"].includes(p.status);
+                const isDelivered = ["delivered", "completed"].includes(p.status);
+
+                return (
+                  <div
+                    key={p.plan_id}
+                    className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#FFE5BF] bg-[#FFFAF3] p-4"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-[#2b1a0e]">{p.plan_id}</span>
+                        <span className="text-xs text-[#7c6a58]">· {p.resource}</span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            isDelivered
+                              ? "bg-green-100 text-green-700"
+                              : isHandedOver
+                              ? "bg-purple-100 text-purple-700"
+                              : "bg-blue-100 text-blue-700"
+                          }`}
+                        >
+                          {p.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-[#7c6a58]">
+                        Destination: <strong className="text-[#2b1a0e]">{p.location_name ?? p.location_code}</strong> · Quantity:{" "}
+                        <strong className="text-[#2b1a0e] font-mono">{myTotalQty} units</strong>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {!isHandedOver ? (
+                        <button
+                          onClick={() => handleConfirmHandover(p.plan_id, p.request_id || undefined)}
+                          disabled={actionBusyId === p.plan_id}
+                          className="rounded-lg bg-[#4CAF50] px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
+                        >
+                          {actionBusyId === p.plan_id ? "Confirming…" : "✓ Confirm Handed Over"}
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-lg bg-green-100 px-3 py-1.5 text-xs font-bold text-green-800">
+                            ✓ Handed Over Success
+                          </span>
+                          {!isDelivered && (
+                            <button
+                              onClick={() => handleConfirmReceipt(p.plan_id, p.request_id || undefined)}
+                              disabled={actionBusyId === p.plan_id}
+                              className="rounded-lg bg-[#2196F3] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
+                            >
+                              {actionBusyId === p.plan_id ? "Confirming…" : "Confirm Received"}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
         {/* ── Your Submissions (live) ── */}
         <div className="rounded-xl border border-[#FFE5BF] bg-white">
           <div className="border-b border-[#FFE5BF] bg-[#FFF2DB] px-4 py-3">
@@ -367,33 +521,66 @@ export default function DonorPage() {
                   <th className="px-4 py-3">Location</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Created</th>
+                  <th className="px-4 py-3">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {submissions.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-[#a1866f]">
+                    <td colSpan={8} className="px-4 py-8 text-center text-[#a1866f]">
                       No submissions yet for {orgId.trim().toUpperCase() || "your organization"}.
                     </td>
                   </tr>
                 ) : (
-                  submissions.map((r) => (
-                    <tr key={r.id} className="border-b border-[#FFF2DB] last:border-0 hover:bg-[#FFFAF3]">
-                      <td className="px-4 py-3 font-semibold">{r.id}</td>
-                      <td className="px-4 py-3 capitalize">{r.type}</td>
-                      <td className="px-4 py-3">{r.resource ?? "—"}</td>
-                      <td className="px-4 py-3 font-mono">
-                        {r.type === "resource" ? r.quantity : r.quantity}
-                      </td>
-                      <td className="px-4 py-3">{r.location_name ?? r.location_code}</td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge(r.status)}`}>
-                          {r.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-[#a1866f]">{r.created_at}</td>
-                    </tr>
-                  ))
+                  submissions.map((r) => {
+                    const isHandedOver = ["in_transit", "dispatched", "delivered", "completed"].includes(r.status);
+                    const isDelivered = ["delivered", "completed"].includes(r.status);
+
+                    return (
+                      <tr key={r.id} className="border-b border-[#FFF2DB] last:border-0 hover:bg-[#FFFAF3]">
+                        <td className="px-4 py-3 font-semibold">{r.id}</td>
+                        <td className="px-4 py-3 capitalize">{r.type}</td>
+                        <td className="px-4 py-3">{r.resource ?? "—"}</td>
+                        <td className="px-4 py-3 font-mono">{r.quantity}</td>
+                        <td className="px-4 py-3">{r.location_name ?? r.location_code}</td>
+                        <td className="px-4 py-3">
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge(r.status)}`}>
+                            {r.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-[#a1866f]">{r.created_at}</td>
+                        <td className="px-4 py-3">
+                          {r.type === "resource" ? (
+                            !isHandedOver ? (
+                              <button
+                                onClick={() => handleConfirmHandover(r.plan_id || undefined, r.id)}
+                                disabled={actionBusyId === r.id}
+                                className="rounded-lg bg-[#4CAF50] px-3 py-1 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                              >
+                                {actionBusyId === r.id ? "…" : "Confirm Handed"}
+                              </button>
+                            ) : (
+                              <span className="text-xs font-semibold text-green-700">✓ Handed</span>
+                            )
+                          ) : r.type === "need" ? (
+                            !isDelivered ? (
+                              <button
+                                onClick={() => handleConfirmReceipt(r.plan_id || undefined, r.id)}
+                                disabled={actionBusyId === r.id}
+                                className="rounded-lg bg-[#2196F3] px-3 py-1 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                              >
+                                {actionBusyId === r.id ? "…" : "Confirm Received"}
+                              </button>
+                            ) : (
+                              <span className="text-xs font-semibold text-green-700">✓ Received</span>
+                            )
+                          ) : (
+                            <span className="text-xs text-[#a1866f]">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

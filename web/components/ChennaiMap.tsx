@@ -24,7 +24,7 @@ const URGENCY_COLORS: Record<string, string> = {
 // FIX: distinct color per organization (sender)
 const ORG_COLORS = ["#2196F3", "#9C27B0", "#00897B", "#EF6C00", "#C2185B", "#5D4037"];
 
-function dotIcon(urgency?: string) {
+function dotIcon(urgency?: string | null) {
   const color = URGENCY_COLORS[(urgency ?? "").toLowerCase()] ?? "#7c6a58";
   return L.divIcon({
     html: `<div style="background:${color};width:18px;height:18px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 8px rgba(0,0,0,.45);"></div>`,

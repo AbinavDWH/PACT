@@ -38,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -174,6 +175,51 @@ fun StatusUpdateScreen(
                 }
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        val org = organizationId.trim().uppercase()
+                        val plan = planId.trim().uppercase()
+                        if (org.isNotBlank() && plan.isNotBlank()) {
+                            selectedStatus = "1"
+                            val seq = StatusSmsBuilder.nextSequence(context, org)
+                            generatedPayload = StatusSmsBuilder.encodeStatus(seq, plan, "1")
+                            generatedMessage = StatusSmsBuilder.humanMessage(plan, "1")
+                        } else {
+                            Toast.makeText(context, "Enter organization and plan ID", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32), contentColor = Color.White)
+                ) {
+                    Text("✓ Handed Over", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = {
+                        val org = organizationId.trim().uppercase()
+                        val plan = planId.trim().uppercase()
+                        if (org.isNotBlank() && plan.isNotBlank()) {
+                            selectedStatus = "3"
+                            val seq = StatusSmsBuilder.nextSequence(context, org)
+                            generatedPayload = StatusSmsBuilder.encodeStatus(seq, plan, "3")
+                            generatedMessage = StatusSmsBuilder.humanMessage(plan, "3")
+                        } else {
+                            Toast.makeText(context, "Enter organization and plan ID", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2), contentColor = Color.White)
+                ) {
+                    Text("✓ Received", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                }
+            }
+
             Button(
                 onClick = {
                     val org = organizationId.trim().uppercase()
@@ -190,7 +236,7 @@ fun StatusUpdateScreen(
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = PactPrimary, contentColor = PactOnPrimary)
             ) {
-                Text("Generate Status SMS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Generate Custom Status SMS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
 
             if (generatedPayload.isNotBlank()) {
