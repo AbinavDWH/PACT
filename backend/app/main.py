@@ -647,6 +647,54 @@ def check_privacy(rec: dict) -> bool:
     return not any(keyword in blob for keyword in BANNED_KEYWORDS)
 
 
+def check_anomaly_and_rate_limit(rec: dict) -> tuple[bool, Optional[str]]:
+    """
+    AI Anomaly & Safety Rule Engine:
+    1. Quantity Too High Check (Excessive quota abuse)
+    2. Frequency / Repeated Resource Request Check (Same ID spamming same resource)
+    3. Medical Supply Quota & Hoarding Check (Medical items requested repeatedly by same ID)
+    """
+    if rec.get("type") != "need":
+        return True, None
+
+    org_id = (rec.get("organization_id") or "").strip().upper()
+    resource_code = (rec.get("resource_code") or "U").upper()
+    resource_name = (rec.get("resource") or "").lower()
+    qty = int(rec.get("quantity") or 0)
+    is_medical = (resource_code in ("M", "D") or "medical" in resource_name or "medicine" in resource_name)
+
+    # 1. QUANTITY ANOMALY: Request too high
+    max_threshold = 1000 if is_medical else 5000
+    if qty > max_threshold:
+        return False, f"EXCESSIVE_QUANTITY (Requested {qty} units exceeds safety threshold of {max_threshold})"
+
+    # 2. FREQUENCY CHECK: Count existing active requests by same org for same resource
+    recent_same_resource = [
+        r for r in REQUESTS.values()
+        if r.get("organization_id") == org_id
+        and r.get("resource_code") == resource_code
+        and r.get("id") != rec.get("id")
+        and r.get("status") not in ("rejected", "duplicate", "delivered")
+    ]
+    if len(recent_same_resource) >= 3:
+        return False, f"FREQUENCY_LIMIT (Org {org_id} has {len(recent_same_resource)} active requests for {resource_code})"
+
+    # 3. MEDICAL QUOTA & HOARDING CHECK: Medical items requested repeatedly by same ID
+    if is_medical:
+        all_medical_reqs = [
+            r for r in REQUESTS.values()
+            if r.get("organization_id") == org_id
+            and (r.get("resource_code") in ("M", "D") or "medical" in (r.get("resource") or "").lower())
+            and r.get("id") != rec.get("id")
+            and r.get("status") not in ("rejected", "duplicate", "delivered")
+        ]
+        total_medical_qty = sum(int(r.get("quantity") or 0) for r in all_medical_reqs) + qty
+        if len(all_medical_reqs) >= 2 or total_medical_qty > 2000:
+            return False, f"MEDICAL_QUOTA_EXCEEDED (Org {org_id} medical requests exceed maximum field quota)"
+
+    return True, None
+
+
 def validate_for_accept(rec: dict):
     if not check_checksum(rec):
         return False, "BAD_CRC"
@@ -654,6 +702,11 @@ def validate_for_accept(rec: dict):
         return False, "DUP"
     if not check_privacy(rec):
         return False, "PRIVACY"
+    
+    ok_anomaly, reason_anomaly = check_anomaly_and_rate_limit(rec)
+    if not ok_anomaly:
+        return False, reason_anomaly
+        
     return True, None
 
 
@@ -832,8 +885,19 @@ async def do_accept(rec: dict):
     if not ok:
         rec["status"] = "duplicate" if reason == "DUP" else "rejected"
         rec["reject_reason"] = reason
-        agent = "Privacy Filter Agent" if reason == "PRIVACY" else "Validator"
+        agent = "Privacy Filter Agent" if reason == "PRIVACY" else "AI Anomaly & Safety Agent"
         add_activity(agent, f"{rec['id']}: auto-rejected ({reason})")
+
+        # AUTO REPLY: Send Rejection SMS to field phone
+        req_phone = rec.get("from_number")
+        if req_phone and req_phone != "Device-SIM":
+            rej_body = f"X|{next_seq()}|{rec['id']}|{reason}"
+            queue_outbound_sms(
+                to_number=req_phone,
+                message=f"{rej_body}|{xor_checksum(rej_body)}",
+                msg_type="rejection",
+                plan_id=rec["id"]
+            )
         return rec, False, reason
 
     # ═══════ AI PRIVACY FLAG (Groq) ═══════
@@ -1066,6 +1130,33 @@ def sms_webhook(payload: SmsWebhookRequest):
             result["hub_request_id"] = hub_request["id"]
             if payload.from_number:
                 hub_request["from_number"] = payload.from_number
+
+            # ═══════ AI ANOMALY & QUOTA VALIDATION (Auto-Reject) ═══════
+            ok_anomaly, reason_anomaly = check_anomaly_and_rate_limit(hub_request)
+            if not ok_anomaly:
+                hub_request["status"] = "rejected"
+                hub_request["reject_reason"] = reason_anomaly
+                result["status"] = "rejected"
+                result["accepted"] = False
+                result["auto_reject_reason"] = reason_anomaly
+                add_activity("AI Anomaly & Safety Agent", f"{hub_request['id']}: AUTO-REJECTED -> {reason_anomaly}")
+
+                if payload.from_number and payload.from_number != "Device-SIM":
+                    rej_body = f"X|{next_seq()}|{hub_request['id']}|{reason_anomaly}"
+                    queue_outbound_sms(
+                        to_number=payload.from_number,
+                        message=f"{rej_body}|{xor_checksum(rej_body)}",
+                        msg_type="rejection",
+                        plan_id=hub_request["id"]
+                    )
+                add_gateway_log(
+                    direction="INBOUND",
+                    from_to=from_num,
+                    message=payload.sms,
+                    status="REJECTED",
+                    detail=f"Auto-rejected by AI: {reason_anomaly}"
+                )
+                return result
 
             # ═══════ AI URGENCY ASSESSMENT & SMS SUPPRESSION ═══════
             urgency_code = hub_request.get("urgency_code") or "M"

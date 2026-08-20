@@ -363,7 +363,8 @@ object ApiClient {
                                 createdAt = o.optString("created_at", ""),
                                 planId = if (o.isNull("plan_id")) null else o.optString("plan_id"),
                                 totalMatched = if (o.isNull("total_matched")) null else o.optInt("total_matched"),
-                                matches = matches
+                                matches = matches,
+                                rejectReason = if (o.isNull("reject_reason")) null else o.optString("reject_reason")
                             )
                         )
                     }

@@ -16,8 +16,8 @@ data class OrgRequest(
     val longitude: Double?,
     val locationCode: String? = null,
     val createdAt: String,
-    // NEW: allocation result fields
     val planId: String? = null,
     val totalMatched: Int? = null,
-    val matches: List<OrgMatch> = emptyList()
+    val matches: List<OrgMatch> = emptyList(),
+    val rejectReason: String? = null
 )

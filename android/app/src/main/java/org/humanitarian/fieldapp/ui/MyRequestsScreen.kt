@@ -482,7 +482,30 @@ private fun ServerRequestCard(req: OrgRequest) {
 
             val totalMatched = req.totalMatched ?: req.matches.sumOf { it.quantity }
 
-            if (req.status.equals("waiting", ignoreCase = true) || (req.type.equals("need", ignoreCase = true) && totalMatched < req.quantity)) {
+            if (req.status.equals("rejected", ignoreCase = true)) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFFFEBEE),
+                    border = BorderStroke(1.dp, STATUS_RED)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "AI AGENT: AUTO-REJECTED",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = STATUS_RED
+                        )
+                        Text(
+                            text = "Reason: ${req.rejectReason ?: "Excessive quantity, frequency limit, or medical quota violation"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFB71C1C)
+                        )
+                    }
+                }
+            } else if (req.status.equals("waiting", ignoreCase = true) || (req.type.equals("need", ignoreCase = true) && totalMatched < req.quantity)) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
