@@ -962,16 +962,28 @@ async def run_need_pipeline(request_id: str):
         # Dispatch to provider organization
         queue_outbound_sms(to_number=phone, message=full_alloc_sms, msg_type="allocation", plan_id=plan["plan_id"])
         
-        # AUTO REPLY: Also dispatch allocation update directly back to field requester phone
+        # AUTO REPLY: Also dispatch allocation update directly back to field requester phone (if not low urgency)
         req_phone = rec.get("from_number")
-        if req_phone and req_phone != "Device-SIM" and req_phone != phone:
+        is_low_urgency = (rec.get("urgency_code") in ("L", "low", "LOW") or rec.get("urgency") in ("L", "low", "LOW"))
+        if req_phone and req_phone != "Device-SIM" and req_phone != phone and not is_low_urgency:
             queue_outbound_sms(to_number=req_phone, message=full_alloc_sms, msg_type="allocation", plan_id=plan["plan_id"])
 
     await asyncio.sleep(AGENT_DELAY_SECONDS)
-    rec["status"] = "allocated"
-    rec["plan_id"] = plan["plan_id"]
-    detail = ", ".join(f"{a['quantity']} from {a['organization_id']}" for a in allocations) or "no suppliers found"
-    add_activity("Coordination Agent", f"{request_id}: created {plan['plan_id']} - {detail}")
+    rec["available_resource"] = allocated_quantity
+    rec["required_quantity"] = quantity
+
+    # ═══════ AI CHECK: R < N -> SHOW STATE WAITING ═══════
+    if allocated_quantity < quantity:
+        rec["status"] = "waiting"
+        rec["plan_id"] = plan["plan_id"] if allocated_quantity > 0 else None
+        rec["ai_supply_status"] = f"AI Assessment: Insufficient Supply (R={allocated_quantity} < N={quantity}). Held in WAITING state until additional stock is registered."
+        add_activity("Resource Matching Agent (AI)", f"{request_id}: R < N ({allocated_quantity} < {quantity}) -> Status set to WAITING")
+    else:
+        rec["status"] = "allocated"
+        rec["plan_id"] = plan["plan_id"]
+        rec["ai_supply_status"] = f"AI Assessment: Full Coverage (R={allocated_quantity} >= N={quantity})."
+        detail = ", ".join(f"{a['quantity']} from {a['organization_id']}" for a in allocations) or "all resources fulfilled"
+        add_activity("Coordination Agent", f"{request_id}: created {plan['plan_id']} - {detail}")
 
 
 async def run_resource_pipeline(request_id: str):
@@ -993,6 +1005,12 @@ async def run_resource_pipeline(request_id: str):
     await asyncio.sleep(AGENT_DELAY_SECONDS)
     rec["status"] = "completed"
     add_activity("Resource Matching Agent", f"{request_id}: {org_id} now holds {org['resources'][resource_code]} {resource_name}")
+
+    # Auto re-evaluate waiting needs for this resource
+    for waiting_req in list(REQUESTS.values()):
+        if waiting_req.get("type") == "need" and waiting_req.get("status") in ("waiting", "pending") \
+                and waiting_req.get("resource_code") == resource_code:
+            asyncio.create_task(run_need_pipeline(waiting_req["id"]))
 
 
 async def run_status_pipeline(request_id: str):
@@ -1048,8 +1066,20 @@ def sms_webhook(payload: SmsWebhookRequest):
             result["hub_request_id"] = hub_request["id"]
             if payload.from_number:
                 hub_request["from_number"] = payload.from_number
-                if payload.from_number != "Device-SIM":
-                    # AUTO REPLY: Send instant Confirmation SMS back to field phone
+
+            # ═══════ AI URGENCY ASSESSMENT & SMS SUPPRESSION ═══════
+            urgency_code = hub_request.get("urgency_code") or "M"
+            is_low_urgency = (urgency_code in ("L", "low", "LOW"))
+
+            if is_low_urgency:
+                hub_request["sync_mode"] = "internet_only"
+                hub_request["status"] = "waiting"
+                hub_request["ai_priority_note"] = "AI Assessment: Low Urgency · SMS updates suppressed to conserve network. Status updates via Internet only."
+                add_activity("AI Assessment Agent", f"{hub_request['id']}: AI flagged LOW urgency -> held in WAITING, syncing via internet only")
+            else:
+                hub_request["sync_mode"] = "sms_and_internet"
+                if payload.from_number and payload.from_number != "Device-SIM":
+                    # AUTO REPLY: Send instant Confirmation SMS back to field phone for High/Med urgency
                     conf_body = f"C|{next_seq()}|{hub_request['id']}|OK"
                     conf_sms = f"{conf_body}|{xor_checksum(conf_body)}"
                     queue_outbound_sms(

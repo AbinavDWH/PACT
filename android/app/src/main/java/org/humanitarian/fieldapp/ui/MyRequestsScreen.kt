@@ -348,18 +348,22 @@ private fun LocalRequestCard(item: LocalRequestItem) {
 
                 item.status.contains("WAITING") -> {
                     val context = androidx.compose.ui.platform.LocalContext.current
+                    val isLowUrgency = item.urgency.equals("Low", ignoreCase = true)
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFFFF8E1),
-                        border = BorderStroke(1.dp, STATUS_ORANGE)
+                        color = if (isLowUrgency) Color(0xFFF3E5F5) else Color(0xFFFFF8E1),
+                        border = BorderStroke(1.dp, if (isLowUrgency) Color(0xFF8E24AA) else STATUS_ORANGE)
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
-                                text = "Transmitted via SMS to Gateway (7401231450). Awaiting confirmation reply SMS.",
+                                text = if (isLowUrgency)
+                                    "🤖 AI Urgency Assessment: Low · Held in WAITING state to conserve cellular SMS quota. Updates sync via Internet only."
+                                else
+                                    "Transmitted via SMS to Gateway (7401231450). Awaiting confirmation reply SMS.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = STATUS_ORANGE,
+                                color = if (isLowUrgency) Color(0xFF6A1B9A) else STATUS_ORANGE,
                                 fontWeight = FontWeight.Medium
                             )
 
@@ -476,8 +480,32 @@ private fun ServerRequestCard(req: OrgRequest) {
                 color = PactTextSecondary
             )
 
-            if (req.matches.isNotEmpty()) {
-                val totalMatched = req.totalMatched ?: req.matches.sumOf { it.quantity }
+            val totalMatched = req.totalMatched ?: req.matches.sumOf { it.quantity }
+
+            if (req.status.equals("waiting", ignoreCase = true) || (req.type.equals("need", ignoreCase = true) && totalMatched < req.quantity)) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFFFF8E1),
+                    border = BorderStroke(1.dp, STATUS_ORANGE)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "AI CHECK: WAITING (R < N · SUPPLY DEFICIT)",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = STATUS_ORANGE
+                        )
+                        Text(
+                            text = "Available Resource: $totalMatched · Requested Need: ${req.quantity}. Request is kept in WAITING status until additional donor inventory is registered.",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = PactTextPrimary
+                        )
+                    }
+                }
+            } else if (req.matches.isNotEmpty()) {
                 val coverage = if (req.quantity > 0) (totalMatched * 100 / req.quantity) else 0
 
                 Spacer(modifier = Modifier.height(4.dp))
