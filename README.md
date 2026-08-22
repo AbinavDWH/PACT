@@ -75,8 +75,8 @@ PACT/
 ```bash
 cd backend
 pip install -r requirements.txt
-python -m app.main
-# Server typically runs on http://localhost:8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+ # Server typically runs on http://localhost:8000
 ```
 
 ### Running the Android App
@@ -114,5 +114,5 @@ docs/
   <img src="docs/screenshots/android-home.png" width="23%" alt="Android Home Screen" />
   <img src="docs/screenshots/android-sms-gateway.png" width="23%" alt="SMS Gateway" />
   <img src="docs/screenshots/web-dashboard.png" width="23%" alt="Web Dashboard" />
-  <img src="docs/screenshots/web-map.png" width="23%" alt="Map View" />
+  
 </p>
