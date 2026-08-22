@@ -113,6 +113,7 @@ docs/
 <p align="center">
   <img src="docs/screenshots/android-home.png" width="23%" alt="Android Home Screen" />
   <img src="docs/screenshots/android-sms-gateway.png" width="23%" alt="SMS Gateway" />
-  <img src="docs/screenshots/web-dashboard.png" width="23%" alt="Web Dashboard" />
+  
   
 </p>
+<img src="docs/screenshots/web-dashboard.png" width="23%" alt="Web Dashboard" />
