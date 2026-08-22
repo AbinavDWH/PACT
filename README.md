@@ -116,4 +116,6 @@ docs/
   
   
 </p>
-<img src="docs/screenshots/web-dashboard.png" width="23%" alt="Web Dashboard" />
+<p align="center">
+<img src="docs/screenshots/web-dashboard.png" width="63%" alt="Web Dashboard" />
+</p>
